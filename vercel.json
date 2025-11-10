@@ -7,10 +7,5 @@
   "routes": [
     { "src": "/api/voice", "dest": "/api/voice.js" },
     { "src": "/(.*)", "dest": "/public/$1" }
-  ],
-  "functions": {
-    "api/voice.js": {
-      "maxDuration": 60
-    }
-  }
+  ]
 }
