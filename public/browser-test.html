@@ -2,13 +2,13 @@
 <html lang="en">
 
 <head>
-    <meta charset="UTF-8">
+    <meta charset="UTF-8" />
     <title>🦷 Dentist IVR — Browser Test</title>
     <script src="https://media.twiliocdn.com/sdk/js/client/v1.13/twilio.min.js"></script>
     <style>
         body {
-            font-family: Arial;
-            background: #fafafa;
+            font-family: Arial, sans-serif;
+            background: #f8f8f8;
             padding: 20px;
         }
 
@@ -17,68 +17,93 @@
             padding: 10px 20px;
             font-size: 16px;
             border-radius: 8px;
+            cursor: pointer;
+        }
+
+        button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
         }
 
         #log {
-            white-space: pre-line;
             background: #fff;
-            padding: 10px;
-            border: 1px solid #ddd;
+            border: 1px solid #ccc;
             border-radius: 8px;
+            padding: 10px;
             height: 300px;
             overflow-y: auto;
+            white-space: pre-line;
         }
     </style>
 </head>
 
 <body>
     <h2>🦷 Dentist IVR — Browser Test</h2>
-    <button id="callBtn">📞 Call IVR</button>
+    <button id="callBtn" disabled>📞 Call IVR</button>
     <button id="hangupBtn" disabled>❌ Hang Up</button>
     <div id="log"></div>
 
     <script>
         const logDiv = document.getElementById("log");
-        const log = (msg) => { logDiv.textContent += msg + "\n"; logDiv.scrollTop = logDiv.scrollHeight; };
+        const log = (msg) => {
+            const t = new Date().toLocaleTimeString();
+            logDiv.textContent += `[${t}] ${msg}\n`;
+            logDiv.scrollTop = logDiv.scrollHeight;
+        };
 
         let device, connection;
 
-        async function init() {
-            log("🔗 Requesting access token...");
-            const res = await fetch("/api/token");
-            const { token } = await res.json();
-            log("✅ Token received, initializing Twilio Device...");
+        async function initTwilio() {
+            try {
+                log("🔗 Fetching Twilio access token...");
+                const res = await fetch("/api/token");
+                const { token } = await res.json();
+                if (!token) throw new Error("No token returned from /api/token");
 
-            device = new Twilio.Device(token, { codecPreferences: ["opus", "pcmu"], fakeLocalDTMF: true });
+                log("✅ Token received. Initializing Twilio Device...");
+                device = new Twilio.Device(token, {
+                    codecPreferences: ["opus", "pcmu"],
+                    fakeLocalDTMF: true,
+                    enableRingingState: true,
+                });
 
-            device.on("ready", () => log("🎧 Device ready. Click 'Call IVR' to connect."));
-            device.on("error", (err) => log("⚠️ Device error: " + err.message));
-            device.on("disconnect", () => {
-                log("📴 Call ended.");
-                document.getElementById("hangupBtn").disabled = true;
-                document.getElementById("callBtn").disabled = false;
-            });
+                device.on("ready", () => {
+                    log("🎧 Device ready — you can now call the IVR.");
+                    document.getElementById("callBtn").disabled = false;
+                });
+
+                device.on("error", (err) => log(`⚠️ Device error: ${err.message}`));
+                device.on("disconnect", () => {
+                    log("📴 Call disconnected.");
+                    document.getElementById("hangupBtn").disabled = true;
+                    document.getElementById("callBtn").disabled = false;
+                });
+            } catch (err) {
+                log("❌ Initialization error: " + err.message);
+            }
         }
 
-        document.getElementById("callBtn").onclick = async () => {
+        document.getElementById("callBtn").onclick = () => {
             if (!device) return log("⚠️ Device not ready yet!");
-            log("📞 Connecting to IVR...");
+            log("📞 Connecting to Dentist IVR...");
             connection = device.connect();
-            document.getElementById("hangupBtn").disabled = false;
             document.getElementById("callBtn").disabled = true;
+            document.getElementById("hangupBtn").disabled = false;
 
-            connection.on("accept", () => log("✅ Call connected. Speak now..."));
+            connection.on("accept", () => log("✅ Call connected — speak freely."));
             connection.on("error", (err) => log("❌ Call error: " + err.message));
+            connection.on("disconnect", () => log("📴 Call ended."));
         };
 
         document.getElementById("hangupBtn").onclick = () => {
             if (connection) connection.disconnect();
-            log("🛑 Call manually hung up.");
+            log("🛑 Hangup requested by user.");
             document.getElementById("hangupBtn").disabled = true;
             document.getElementById("callBtn").disabled = false;
         };
 
-        init();
+        // init Twilio as soon as page loads
+        initTwilio();
     </script>
 </body>
 
