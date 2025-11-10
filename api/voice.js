@@ -48,33 +48,39 @@ async function createCalendarEvent({ summary, startISO, minutes, phone }) {
   return event;
 }
 
-// --- Télécharge l'audio Twilio + envoie à Whisper --- //
+// --- TWILIO AUDIO DOWNLOAD + WHISPER --- //
 async function transcribeAudioFromTwilio(recordingUrl) {
-  console.log("🎧 Downloading Twilio recording:", recordingUrl);
-  const auth = Buffer.from(
-    `${process.env.TWILIO_ACCOUNT_SID}:${process.env.TWILIO_AUTH_TOKEN}`
-  ).toString("base64");
+  try {
+    console.log("🎧 Downloading Twilio recording:", recordingUrl);
+    const auth = Buffer.from(
+      `${process.env.TWILIO_ACCOUNT_SID}:${process.env.TWILIO_AUTH_TOKEN}`
+    ).toString("base64");
 
-  const response = await fetch(`${recordingUrl}.mp3`, {
-    headers: { Authorization: `Basic ${auth}` },
-  });
+    const response = await fetch(`${recordingUrl}.mp3`, {
+      headers: { Authorization: `Basic ${auth}` },
+    });
 
-  if (!response.ok) throw new Error(`Failed to download recording: ${response.status}`);
+    if (!response.ok) throw new Error(`❌ Failed to download: ${response.status}`);
 
-  const tempFile = path.join("/tmp", `recording-${Date.now()}.mp3`);
-  const buffer = await response.arrayBuffer();
-  fs.writeFileSync(tempFile, Buffer.from(buffer));
+    const tempFile = path.join("/tmp", `recording-${Date.now()}.mp3`);
+    const buffer = await response.arrayBuffer();
+    fs.writeFileSync(tempFile, Buffer.from(buffer));
+    console.log("📥 Recording saved locally:", tempFile);
 
-  console.log("📤 Sending to Whisper...");
-  const transcription = await openai.audio.transcriptions.create({
-    file: fs.createReadStream(tempFile),
-    model: "whisper-1",
-    language: "he",
-  });
+    console.log("📤 Sending audio to Whisper for transcription...");
+    const transcription = await openai.audio.transcriptions.create({
+      file: fs.createReadStream(tempFile),
+      model: "whisper-1",
+      language: "he",
+    });
 
-  fs.unlinkSync(tempFile);
-  console.log("✅ Whisper result:", transcription.text);
-  return transcription.text;
+    fs.unlinkSync(tempFile);
+    console.log("✅ Whisper result:", transcription.text);
+    return transcription.text || "";
+  } catch (err) {
+    console.error("🚨 Whisper or download error:", err.message);
+    return "";
+  }
 }
 
 // --- MAIN HANDLER --- //
@@ -88,7 +94,7 @@ export default async function handler(req, res) {
   const step = req.query.step || "start";
 
   try {
-    // --- STEP 1: Choix de la langue ---
+    // --- STEP 1: Language choice ---
     if (step === "start") {
       const gather = vr.gather({
         input: "speech dtmf",
@@ -109,12 +115,12 @@ export default async function handler(req, res) {
       return;
     }
 
-    // --- STEP 2: Question (Nom + Date) ---
+    // --- STEP 2: Ask for name + date ---
     if (step === "lang") {
       const digits = req.body.Digits;
       const speech = (req.body.SpeechResult || "").toLowerCase();
 
-      let key = "1"; // default English
+      let key = "1";
       if (digits === "2" || speech.includes("fran")) key = "2";
       else if (digits === "3" || speech.includes("ivrit") || speech.includes("עברית")) key = "3";
 
@@ -125,8 +131,8 @@ export default async function handler(req, res) {
         vr.record({
           action: `https://dentist-ivr-poc.vercel.app/api/voice?step=collect&lang=3`,
           method: "POST",
-          maxLength: "45",
-          timeout: "10",
+          maxLength: "60",
+          timeout: "15",
           playBeep: false,
         });
       } else {
@@ -153,7 +159,7 @@ export default async function handler(req, res) {
       return;
     }
 
-    // --- STEP 3: Analyse et création du RDV ---
+    // --- STEP 3: Parse & schedule ---
     if (step === "collect") {
       const lang = req.query.lang || "1";
       let utterance = req.body.SpeechResult || "";
@@ -161,11 +167,22 @@ export default async function handler(req, res) {
       const recordingUrl = req.body.RecordingUrl;
 
       if (lang === "3" && recordingUrl) {
+        console.log("🎙️ Hebrew mode active — fetching audio...");
         utterance = await transcribeAudioFromTwilio(recordingUrl);
       }
 
-      console.log("🧠 Speech input:", utterance);
+      if (!utterance) {
+        console.warn("⚠️ No speech detected or Whisper failed");
+        vr.say(
+          { language: "en-US" },
+          "Sorry, I could not understand your message. Please try again later."
+        );
+        res.setHeader("Content-Type", "text/xml");
+        res.send(vr.toString());
+        return;
+      }
 
+      console.log("🧠 Extracted speech:", utterance);
       let whenISO, name;
       const currentYear = new Date().getFullYear();
 
@@ -178,9 +195,8 @@ export default async function handler(req, res) {
               content: `Tu es un assistant de prise de rendez-vous médical.
               Extrais le *nom complet* et la *date exacte* de la phrase donnée.
               Si aucune année n’est précisée, considère que nous sommes en ${currentYear}.
-              Retourne un JSON strict du format :
-              {"date_iso": "YYYY-MM-DDTHH:mm:ssZ", "name": "Nom du patient"}.
-              Ne mets rien d'autre que ce JSON.`,
+              Retourne un JSON strict :
+              {"date_iso": "YYYY-MM-DDTHH:mm:ssZ", "name": "Nom du patient"}.`,
             },
             { role: "user", content: utterance },
           ],
@@ -191,7 +207,7 @@ export default async function handler(req, res) {
         whenISO = data.date_iso;
         name = data.name || "Patient";
       } catch (e) {
-        console.error("⚠️ OpenAI error:", e.message);
+        console.error("⚠️ OpenAI parsing error:", e.message);
         const parsed = chrono.parseDate(utterance, new Date(), { forwardDate: true });
         whenISO = parsed
           ? parsed.toISOString()
