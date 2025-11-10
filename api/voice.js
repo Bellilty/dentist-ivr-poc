@@ -48,7 +48,7 @@ async function createCalendarEvent({ summary, startISO, minutes, phone }) {
   return event;
 }
 
-// --- TWILIO AUDIO DOWNLOAD + WHISPER --- //
+// --- TELECHARGE L'AUDIO TWILIO + WHISPER --- //
 async function transcribeAudioFromTwilio(recordingUrl) {
   try {
     console.log("🎧 Downloading Twilio recording:", recordingUrl);
@@ -94,7 +94,7 @@ export default async function handler(req, res) {
   const step = req.query.step || "start";
 
   try {
-    // --- STEP 1: Language choice ---
+    // --- STEP 1: Choix de la langue ---
     if (step === "start") {
       const gather = vr.gather({
         input: "speech dtmf",
@@ -115,7 +115,7 @@ export default async function handler(req, res) {
       return;
     }
 
-    // --- STEP 2: Ask for name + date ---
+    // --- STEP 2: Demande nom/date ---
     if (step === "lang") {
       const digits = req.body.Digits;
       const speech = (req.body.SpeechResult || "").toLowerCase();
@@ -131,8 +131,8 @@ export default async function handler(req, res) {
         vr.record({
           action: `https://dentist-ivr-poc.vercel.app/api/voice?step=collect&lang=3`,
           method: "POST",
-          maxLength: "60",
-          timeout: "15",
+          maxLength: "45",
+          timeout: "5", // stop après 5s de silence
           playBeep: false,
         });
       } else {
@@ -159,93 +159,91 @@ export default async function handler(req, res) {
       return;
     }
 
-    // --- STEP 3: Parse & schedule ---
+    // --- STEP 3: Analyse + création RDV ---
     if (step === "collect") {
       const lang = req.query.lang || "1";
-      let utterance = req.body.SpeechResult || "";
       const from = req.body.From || "";
       const recordingUrl = req.body.RecordingUrl;
 
-      if (lang === "3" && recordingUrl) {
-        console.log("🎙️ Hebrew mode active — fetching audio...");
-        utterance = await transcribeAudioFromTwilio(recordingUrl);
-      }
+      console.log("🎙️ Recording received:", recordingUrl);
 
-      if (!utterance) {
-        console.warn("⚠️ No speech detected or Whisper failed");
-        vr.say(
-          { language: "en-US" },
-          "Sorry, I could not understand your message. Please try again later."
-        );
-        res.setHeader("Content-Type", "text/xml");
-        res.send(vr.toString());
-        return;
-      }
-
-      console.log("🧠 Extracted speech:", utterance);
-      let whenISO, name;
-      const currentYear = new Date().getFullYear();
-
-      try {
-        const completion = await openai.chat.completions.create({
-          model: "gpt-4o-mini",
-          messages: [
-            {
-              role: "system",
-              content: `Tu es un assistant de prise de rendez-vous médical.
-              Extrais le *nom complet* et la *date exacte* de la phrase donnée.
-              Si aucune année n’est précisée, considère que nous sommes en ${currentYear}.
-              Retourne un JSON strict :
-              {"date_iso": "YYYY-MM-DDTHH:mm:ssZ", "name": "Nom du patient"}.`,
-            },
-            { role: "user", content: utterance },
-          ],
-          temperature: 0.1,
-        });
-
-        const data = JSON.parse(completion.choices[0].message.content.trim());
-        whenISO = data.date_iso;
-        name = data.name || "Patient";
-      } catch (e) {
-        console.error("⚠️ OpenAI parsing error:", e.message);
-        const parsed = chrono.parseDate(utterance, new Date(), { forwardDate: true });
-        whenISO = parsed
-          ? parsed.toISOString()
-          : new Date(Date.now() + 24 * 3600 * 1000).toISOString();
-        name = "Patient";
-      }
-
-      try {
-        await createCalendarEvent({
-          summary: `${process.env.CLINIC_NAME} – RDV ${name}`,
-          startISO: whenISO,
-          minutes: parseInt(process.env.DEFAULT_APPT_MINUTES || "30", 10),
-          phone: from,
-        });
-
-        if (lang === "3") {
-          vr.play("https://dentist-ivr-poc.vercel.app/audio/confirm-he.mp3");
-        } else {
-          const msgs = {
-            "1": `Thank you ${name}. Your appointment has been scheduled for ${new Date(
-              whenISO
-            ).toLocaleString("en-US", { timeZone: process.env.CLINIC_TIMEZONE })}. Goodbye!`,
-            "2": `Merci ${name}. Votre rendez-vous a bien été enregistré pour le ${new Date(
-              whenISO
-            ).toLocaleString("fr-FR", { timeZone: process.env.CLINIC_TIMEZONE })}. À bientôt !`,
-          };
-          vr.say({ language: { "1": "en-US", "2": "fr-FR" }[lang] }, msgs[lang]);
-        }
-      } catch (err) {
-        console.error("❌ Calendar error:", err.message);
-        vr.say(
-          { language: "en-US" },
-          "Sorry, there was an issue scheduling your appointment."
-        );
+      // 1️⃣ Réponse immédiate pour éviter timeout
+      if (lang === "3") {
+        vr.play("https://dentist-ivr-poc.vercel.app/audio/confirm-he.mp3");
+      } else {
+        const msg =
+          lang === "2"
+            ? "Merci, votre demande est en cours de traitement. Vous recevrez une confirmation sous peu."
+            : "Thank you, we’re processing your request.";
+        vr.say({ language: lang === "2" ? "fr-FR" : "en-US" }, msg);
       }
 
       res.setHeader("Content-Type", "text/xml");
       res.send(vr.toString());
+
+      // 2️⃣ Traitement async en arrière-plan
+      (async () => {
+        try {
+          let utterance = "";
+          if (lang === "3" && recordingUrl) {
+            utterance = await transcribeAudioFromTwilio(recordingUrl);
+          } else {
+            utterance = req.body.SpeechResult || "";
+          }
+
+          if (!utterance) {
+            console.warn("⚠️ No speech detected or transcription failed");
+            return;
+          }
+
+          console.log("🧠 Extracted speech:", utterance);
+
+          const currentYear = new Date().getFullYear();
+          let whenISO, name;
+
+          try {
+            const completion = await openai.chat.completions.create({
+              model: "gpt-4o-mini",
+              messages: [
+                {
+                  role: "system",
+                  content: `Tu es un assistant de prise de rendez-vous médical.
+                    Extrais le *nom complet* et la *date exacte* de la phrase donnée.
+                    Si aucune année n’est précisée, considère que nous sommes en ${currentYear}.
+                    Retourne un JSON strict :
+                    {"date_iso": "YYYY-MM-DDTHH:mm:ssZ", "name": "Nom du patient"}.`,
+                },
+                { role: "user", content: utterance },
+              ],
+              temperature: 0.1,
+            });
+
+            const data = JSON.parse(completion.choices[0].message.content.trim());
+            whenISO = data.date_iso;
+            name = data.name || "Patient";
+          } catch (e) {
+            console.error("⚠️ OpenAI parsing error:", e.message);
+            const parsed = chrono.parseDate(utterance, new Date(), { forwardDate: true });
+            whenISO = parsed
+              ? parsed.toISOString()
+              : new Date(Date.now() + 24 * 3600 * 1000).toISOString();
+            name = "Patient";
+          }
+
+          await createCalendarEvent({
+            summary: `${process.env.CLINIC_NAME} – RDV ${name}`,
+            startISO: whenISO,
+            minutes: parseInt(process.env.DEFAULT_APPT_MINUTES || "30", 10),
+            phone: from,
+          });
+
+          console.log("✅ Appointment created:", name, whenISO);
+        } catch (err) {
+          console.error("🔥 Background error:", err.message);
+        }
+      })();
+
+      return;
     }
   } catch (err) {
     console.error("🔥 FATAL ERROR:", err.message, err.stack);
