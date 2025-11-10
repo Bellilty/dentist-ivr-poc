@@ -80,7 +80,7 @@ export default async function handler(req, res) {
 
       gather.say({ language: "en-US" }, "For service in English, press 1.");
       gather.say({ language: "fr-FR" }, "Pour le service en français, appuyez sur 2.");
-      gather.play("https://dentist-ivr-poc.vercel.app/api/audio/press-3-he.mp3");
+      gather.play("https://dentist-ivr-poc.vercel.app/audio/press-3-he.mp3");
 
       res.setHeader("Content-Type", "text/xml");
       res.send(vr.toString());
@@ -113,7 +113,7 @@ export default async function handler(req, res) {
       });
 
       if (key === "3")
-        gather.play("https://dentist-ivr-poc.vercel.app/api/audio/welcome-he.mp3");
+        gather.play("https://dentist-ivr-poc.vercel.app/audio/welcome-he.mp3");
       else gather.say({ language: langs[key] }, prompts[key]);
 
       res.setHeader("Content-Type", "text/xml");
@@ -193,7 +193,7 @@ export default async function handler(req, res) {
         };
 
         if (lang === "3")
-          vr.play("https://dentist-ivr-poc.vercel.app/api/audio/confirm-he.mp3");
+          vr.play("https://dentist-ivr-poc.vercel.app/audio/confirm-he.mp3");
         else vr.say({ language: { "1": "en-US", "2": "fr-FR" }[lang] }, msgs[lang]);
       } catch (err) {
         console.error("❌ Calendar error:", err.message);
