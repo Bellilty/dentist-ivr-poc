@@ -10,9 +10,10 @@ import path from "path";
 const VoiceResponse = twilio.twiml.VoiceResponse;
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-/* ---------------------------------------------------------
-   GOOGLE CALENDAR AUTH
---------------------------------------------------------- */
+/* ---------- Utils ---------- */
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/* ---------- Google Calendar Auth ---------- */
 function getOAuthClient() {
   const credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS_JSON);
   const token = JSON.parse(process.env.GOOGLE_TOKEN_JSON);
@@ -51,51 +52,61 @@ async function createCalendarEvent({ summary, startISO, minutes, phone }) {
   return event;
 }
 
-/* ---------------------------------------------------------
-   TWILIO AUDIO → DOWNLOAD → WHISPER TRANSCRIPTION
---------------------------------------------------------- */
+/* ---------- Twilio recording -> Whisper (HE) ---------- */
 async function transcribeAudioFromTwilio(recordingUrl) {
   try {
-    console.log("🎧 Downloading Twilio recording:", recordingUrl);
+    console.log("🎧 Downloading Twilio recording base URL:", recordingUrl);
+
+    // Petite marge pour s'assurer que Twilio a finalisé le fichier
+    await sleep(2000);
 
     const auth = Buffer.from(
       `${process.env.TWILIO_ACCOUNT_SID}:${process.env.TWILIO_AUTH_TOKEN}`
     ).toString("base64");
 
-    const response = await fetch(`${recordingUrl}.mp3`, {
-      headers: { Authorization: `Basic ${auth}` },
-    });
+    // Retry simple si l’asset n’est pas encore prêt
+    let resp;
+    for (let attempt = 1; attempt <= 4; attempt++) {
+      resp = await fetch(`${recordingUrl}.mp3`, {
+        headers: { Authorization: `Basic ${auth}` },
+      });
+      if (resp.ok) break;
+      console.warn(`⏳ Recording not ready (status ${resp.status}), retry ${attempt}/4`);
+      await sleep(1500);
+    }
 
-    if (!response.ok) throw new Error(`❌ Failed to download: ${response.status}`);
+    if (!resp || !resp.ok) {
+      throw new Error(`❌ Failed to download: ${resp?.status}`);
+    }
 
     const tempFile = path.join("/tmp", `recording-${Date.now()}.mp3`);
-    const buffer = await response.arrayBuffer();
+    const buffer = await resp.arrayBuffer();
     fs.writeFileSync(tempFile, Buffer.from(buffer));
+    console.log("📥 Recording saved locally:", tempFile);
 
     console.log("📤 Sending audio to OpenAI (gpt-4o-mini-transcribe)...");
     const transcription = await openai.audio.transcriptions.create({
       file: fs.createReadStream(tempFile),
       model: "gpt-4o-mini-transcribe",
       response_format: "json",
-      language: "he", // hébreu explicite
-      prompt: "שיחה לקביעת תור לרופא שיניים. השתמש במילים רפואיות מדויקות והקפד על דיוק בזמנים.",
+      language: "he",
+      prompt:
+        "שיחה לקביעת תור אצל רופא שיניים. שמות פרטיים ומשפחה בעברית, תאריכים ושעות בדיוק.",
     });
 
     fs.unlinkSync(tempFile);
-    console.log("✅ Whisper result:", transcription.text);
+    console.log("✅ Transcribe result (HE):", transcription.text);
     return transcription.text || "";
   } catch (err) {
-    console.error("🚨 Whisper or download error:", err.message);
+    console.error("🚨 Whisper/Download error:", err.message);
     return "";
   }
 }
 
-/* ---------------------------------------------------------
-   MAIN HANDLER (Twilio Webhook)
---------------------------------------------------------- */
+/* ---------- Main Twilio Webhook ---------- */
 export default async function handler(req, res) {
   console.log("🟢 STEP:", req.query.step || "start");
-  console.log("🟡 BODY:", req.body);
+  console.log("🟡 BODY keys:", Object.keys(req.body || {}));
 
   if (req.method !== "POST") return res.status(405).send("Method Not Allowed");
 
@@ -103,9 +114,7 @@ export default async function handler(req, res) {
   const step = req.query.step || "start";
 
   try {
-    /* -----------------------------------------------------
-       STEP 1 — LANGUAGE SELECTION
-    ----------------------------------------------------- */
+    /* ---- STEP 1 : Language Selection ---- */
     if (step === "start") {
       const gather = vr.gather({
         input: "speech dtmf",
@@ -119,6 +128,7 @@ export default async function handler(req, res) {
 
       gather.say({ language: "en-US" }, "For service in English, press 1.");
       gather.say({ language: "fr-FR" }, "Pour le service en français, appuyez sur 2.");
+      // Hébreu via MP3 pré-enregistré
       gather.play("https://dentist-ivr-poc.vercel.app/audio/press-3-he.mp3");
 
       res.setHeader("Content-Type", "text/xml");
@@ -126,29 +136,30 @@ export default async function handler(req, res) {
       return;
     }
 
-    /* -----------------------------------------------------
-       STEP 2 — ASK NAME + DATE
-    ----------------------------------------------------- */
+    /* ---- STEP 2 : Ask Name + Date ---- */
     if (step === "lang") {
       const digits = req.body.Digits;
       const speech = (req.body.SpeechResult || "").toLowerCase();
 
-      let key = "1"; // default English
+      let key = "1"; // EN by default
       if (digits === "2" || speech.includes("fran")) key = "2";
       else if (digits === "3" || speech.includes("ivrit") || speech.includes("עברית")) key = "3";
 
-      const langs = { "1": "en-US", "2": "fr-FR", "3": "he-IL" };
+      const langs = { "1": "en-US", "2": "fr-FR" };
 
       if (key === "3") {
+        // Mode hébreu: on joue l'audio et on enregistre (pas de STT Twilio)
         vr.play("https://dentist-ivr-poc.vercel.app/audio/welcome-he.mp3");
         vr.record({
           action: `https://dentist-ivr-poc.vercel.app/api/voice?step=collect&lang=3`,
           method: "POST",
           maxLength: "60",
-          timeout: "10",
+          timeout: "3",            // détection de silence plus rapide
+          trim: "trim-silence",    // Twilio coupe les silences
           playBeep: false,
         });
       } else {
+        // EN / FR : Gather STT Twilio
         const prompts = {
           "1": "Welcome to Doctor B's clinic. Please say your name and the date and time you'd like for your appointment.",
           "2": "Bienvenue au cabinet du docteur B. Veuillez indiquer votre nom ainsi que la date et l’heure souhaitées pour votre rendez-vous.",
@@ -158,7 +169,7 @@ export default async function handler(req, res) {
           input: "speech",
           action: `https://dentist-ivr-poc.vercel.app/api/voice?step=collect&lang=${key}`,
           method: "POST",
-          language: langs[key],
+          language: langs[key],   // Twilio supporte en-US et fr-FR
           speechTimeout: "auto",
           timeout: 20,
           bargeIn: true,
@@ -172,9 +183,7 @@ export default async function handler(req, res) {
       return;
     }
 
-    /* -----------------------------------------------------
-       STEP 3 — PARSE & CREATE CALENDAR EVENT
-    ----------------------------------------------------- */
+    /* ---- STEP 3 : Parse & Schedule ---- */
     if (step === "collect") {
       const lang = req.query.lang || "1";
       let utterance = req.body.SpeechResult || "";
@@ -182,12 +191,12 @@ export default async function handler(req, res) {
       const recordingUrl = req.body.RecordingUrl;
 
       if (lang === "3" && recordingUrl) {
-        console.log("🎙️ Hebrew mode active — fetching audio...");
+        console.log("🎙️ Hebrew mode — fetching & transcribing…");
         utterance = await transcribeAudioFromTwilio(recordingUrl);
       }
 
       if (!utterance) {
-        console.warn("⚠️ No speech detected or Whisper failed");
+        console.warn("⚠️ No speech detected / transcription failed");
         vr.say(
           { language: "en-US" },
           "Sorry, I could not understand your message. Please try again later."
@@ -198,18 +207,21 @@ export default async function handler(req, res) {
       }
 
       console.log("🧠 Extracted speech:", utterance);
+
       let whenISO, name;
       const currentYear = new Date().getFullYear();
 
       try {
         const sysPrompt =
           lang === "3"
-            ? `אתה עוזר קביעת תורים רפואיים. מהמשפט של המטופל, הפק את שם מלא ותאריך מדויק (כולל שעה אם יש). החזר JSON מדויק:
-              {"date_iso": "YYYY-MM-DDTHH:mm:ssZ", "name": "שם המטופל"}.`
+            ? `אתה עוזר קביעת תורים רפואיים. מתוך המשפט של המטופל, הפק *שם מלא* ו-*תאריך מדויק* (כולל שעה אם קיימת).
+הנח שהשנה הנוכחית היא ${currentYear} אם לא צוין אחרת. החזר JSON תקין בלבד:
+{"date_iso":"YYYY-MM-DDTHH:mm:ssZ","name":"שם המטופל"}.`
             : `You are a medical appointment assistant.
-              Extract the patient's full name and exact appointment date/time.
-              Return strict JSON only:
-              {"date_iso": "YYYY-MM-DDTHH:mm:ssZ", "name": "Patient name"}.`;
+Extract the patient's *full name* and the *exact date and time* from the sentence.
+If no year is provided, assume it is ${currentYear}.
+Return strict JSON only:
+{"date_iso":"YYYY-MM-DDTHH:mm:ssZ","name":"Patient name"}.`;
 
         const completion = await openai.chat.completions.create({
           model: "gpt-4o-mini",
@@ -223,9 +235,21 @@ export default async function handler(req, res) {
         const data = JSON.parse(completion.choices[0].message.content.trim());
         whenISO = data.date_iso;
         name = data.name || "Patient";
+
+        // Sécurité : remet l'année courante si le modèle renvoie une année passée
+        const d = new Date(whenISO);
+        if (d.getFullYear() < currentYear) {
+          d.setFullYear(currentYear);
+          whenISO = d.toISOString();
+        }
       } catch (e) {
         console.error("⚠️ OpenAI parsing error:", e.message);
-        const parsed = chrono.parseDate(utterance, new Date(), { forwardDate: true });
+        // Fallback: chrono pour EN/FR ; sinon valeur par défaut (J+1)
+        const parsed =
+          lang === "1" || lang === "2"
+            ? chrono.parseDate(utterance, new Date(), { forwardDate: true })
+            : null;
+
         whenISO = parsed
           ? parsed.toISOString()
           : new Date(Date.now() + 24 * 3600 * 1000).toISOString();
@@ -241,6 +265,7 @@ export default async function handler(req, res) {
         });
 
         if (lang === "3") {
+          // Confirmation audio pré-enregistrée en hébreu
           vr.play("https://dentist-ivr-poc.vercel.app/audio/confirm-he.mp3");
         } else {
           const msgs = {
@@ -267,8 +292,9 @@ export default async function handler(req, res) {
     }
   } catch (err) {
     console.error("🔥 FATAL ERROR:", err.message, err.stack);
-    vr.say({ language: "en-US" }, "Sorry, something went wrong on our end.");
+    const fallback = new VoiceResponse();
+    fallback.say({ language: "en-US" }, "Sorry, something went wrong on our end.");
     res.setHeader("Content-Type", "text/xml");
-    res.send(vr.toString());
+    res.send(fallback.toString());
   }
 }
