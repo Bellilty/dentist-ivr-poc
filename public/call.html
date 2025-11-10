@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <title>🦷 Dentist IVR — Browser Test</title>
+    <script src="https://media.twiliocdn.com/sdk/js/client/v1.13/twilio.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+            padding-top: 100px;
+            background: #fafafa;
+        }
+
+        button {
+            padding: 15px 25px;
+            font-size: 18px;
+            border: none;
+            background: #0070f3;
+            color: white;
+            border-radius: 10px;
+            cursor: pointer;
+        }
+
+        button:hover {
+            background: #0055aa;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>🦷 Dentist IVR — Browser Test</h1>
+    <p>Test your IVR for free from the browser</p>
+    <button id="call">📞 Call IVR</button>
+    <p id="status">Idle</p>
+
+    <script>
+        async function init() {
+            document.getElementById("status").textContent = "🔗 Fetching token...";
+            const res = await fetch("/api/token");
+            const { token } = await res.json();
+
+            const device = new Twilio.Device(token, {
+                debug: true,
+                codecPreferences: ["opus", "pcmu"],
+            });
+
+            device.on("ready", () => {
+                document.getElementById("status").textContent = "✅ Ready to call IVR";
+                document.getElementById("call").disabled = false;
+            });
+
+            device.on("error", (err) => {
+                document.getElementById("status").textContent = "❌ " + err.message;
+            });
+
+            document.getElementById("call").onclick = () => {
+                document.getElementById("status").textContent = "📞 Connecting to IVR...";
+                device.connect();
+            };
+        }
+
+        init();
+    </script>
+</body>
+
+</html>

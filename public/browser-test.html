@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>🦷 Dentist IVR — Browser Test</title>
+    <script src="https://media.twiliocdn.com/sdk/js/client/v1.13/twilio.min.js"></script>
+    <style>
+        body {
+            font-family: Arial;
+            background: #fafafa;
+            padding: 20px;
+        }
+
+        button {
+            margin: 10px;
+            padding: 10px 20px;
+            font-size: 16px;
+            border-radius: 8px;
+        }
+
+        #log {
+            white-space: pre-line;
+            background: #fff;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            height: 300px;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+
+<body>
+    <h2>🦷 Dentist IVR — Browser Test</h2>
+    <button id="callBtn">📞 Call IVR</button>
+    <button id="hangupBtn" disabled>❌ Hang Up</button>
+    <div id="log"></div>
+
+    <script>
+        const logDiv = document.getElementById("log");
+        const log = (msg) => { logDiv.textContent += msg + "\n"; logDiv.scrollTop = logDiv.scrollHeight; };
+
+        let device, connection;
+
+        async function init() {
+            log("🔗 Requesting access token...");
+            const res = await fetch("/api/token");
+            const { token } = await res.json();
+            log("✅ Token received, initializing Twilio Device...");
+
+            device = new Twilio.Device(token, { codecPreferences: ["opus", "pcmu"], fakeLocalDTMF: true });
+
+            device.on("ready", () => log("🎧 Device ready. Click 'Call IVR' to connect."));
+            device.on("error", (err) => log("⚠️ Device error: " + err.message));
+            device.on("disconnect", () => {
+                log("📴 Call ended.");
+                document.getElementById("hangupBtn").disabled = true;
+                document.getElementById("callBtn").disabled = false;
+            });
+        }
+
+        document.getElementById("callBtn").onclick = async () => {
+            if (!device) return log("⚠️ Device not ready yet!");
+            log("📞 Connecting to IVR...");
+            connection = device.connect();
+            document.getElementById("hangupBtn").disabled = false;
+            document.getElementById("callBtn").disabled = true;
+
+            connection.on("accept", () => log("✅ Call connected. Speak now..."));
+            connection.on("error", (err) => log("❌ Call error: " + err.message));
+        };
+
+        document.getElementById("hangupBtn").onclick = () => {
+            if (connection) connection.disconnect();
+            log("🛑 Call manually hung up.");
+            document.getElementById("hangupBtn").disabled = true;
+            document.getElementById("callBtn").disabled = false;
+        };
+
+        init();
+    </script>
+</body>
+
+</html>

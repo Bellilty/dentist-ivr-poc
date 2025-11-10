@@ -2,10 +2,12 @@
   "version": 2,
   "builds": [
     { "src": "api/voice.js", "use": "@vercel/node" },
+    { "src": "api/token.js", "use": "@vercel/node" },
     { "src": "public/**/*", "use": "@vercel/static" }
   ],
   "routes": [
     { "src": "/api/voice", "dest": "/api/voice.js" },
+    { "src": "/api/token", "dest": "/api/token.js" },
     { "src": "/(.*)", "dest": "/public/$1" }
   ]
 }
