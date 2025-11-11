@@ -1,40 +1,43 @@
+// Inside server.js
 import "dotenv/config";
 import express from "express";
-
-import twilio from "twilio";
-import path from "path";
-import { fileURLToPath } from "url";
+import pkg from "twilio";
 
 const app = express();
-const { jwt } = twilio;
+const { jwt } = pkg;
 const { AccessToken } = jwt;
 const { VoiceGrant } = AccessToken;
 
-const twilioAccountSid = process.env.TWILIO_ACCOUNT_SID;
-const twilioApiKey = process.env.TWILIO_API_KEY;
-const twilioApiSecret = process.env.TWILIO_API_SECRET;
-const twimlAppSid = process.env.TWIML_APP_SID;
+app.get("/api/token", (req, res) => {
+  try {
+    const accountSid = process.env.TWILIO_ACCOUNT_SID;
+    const apiKey = process.env.TWILIO_API_KEY;
+    const apiSecret = process.env.TWILIO_API_SECRET;
+    const appSid = process.env.TWIML_APP_SID;
 
-app.use(express.static(path.dirname(fileURLToPath(import.meta.url)))); // sert index.html
+    if (!accountSid || !apiKey || !apiSecret || !appSid) {
+      console.error("❌ Missing Twilio credentials in environment");
+      return res.status(500).json({ error: "Missing Twilio credentials" });
+    }
 
-app.get("/token", (req, res) => {
-  const identity = "browser_tester";
-  const voiceGrant = new VoiceGrant({
-    outgoingApplicationSid: twimlAppSid,
-    incomingAllow: false,
-  });
+    const identity = "browser_tester";
+    const voiceGrant = new VoiceGrant({ outgoingApplicationSid: appSid });
 
-  const token = new AccessToken(
-    twilioAccountSid,
-    twilioApiKey,
-    twilioApiSecret,
-    { identity }
-  );
-  token.addGrant(voiceGrant);
+    const token = new AccessToken(accountSid, apiKey, apiSecret, { identity });
+    token.addGrant(voiceGrant);
 
-  res.send({ token: token.toJwt() });
+    const jwtToken = token.toJwt();
+    console.log("✅ Token generated for:", identity);
+
+    res.status(200).json({ token: jwtToken });
+  } catch (err) {
+    console.error("🔥 Token generation error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
 });
 
-app.listen(3000, () =>
-  console.log("✅ Token server running at http://localhost:3000")
-);
+app.use(express.static("public"));
+app.use("/public", express.static("public"));
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`✅ Server running at http://localhost:${PORT}`));

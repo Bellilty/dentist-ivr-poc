@@ -8,6 +8,7 @@
   "routes": [
     { "src": "/api/voice", "dest": "/api/voice.js" },
     { "src": "/api/token", "dest": "/api/token.js" },
+    { "src": "^/public/(.*)$", "dest": "/public/$1" },
     { "src": "/(.*)", "dest": "/public/$1" }
   ]
 }

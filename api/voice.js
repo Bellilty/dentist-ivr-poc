@@ -64,22 +64,24 @@ async function transcribeAudioFromTwilio(recordingUrl) {
       `${process.env.TWILIO_ACCOUNT_SID}:${process.env.TWILIO_AUTH_TOKEN}`
     ).toString("base64");
 
-    // Retry simple si l’asset n’est pas encore prêt
+    // Hotfix: télécharger en WAV (format natif) + backoff exponentiel
+    const url = `${recordingUrl}.wav`;
+    const delays = [1000, 2000, 4000, 8000, 16000]; // 1s → 16s
     let resp;
-    for (let attempt = 1; attempt <= 4; attempt++) {
-      resp = await fetch(`${recordingUrl}.mp3`, {
-        headers: { Authorization: `Basic ${auth}` },
-      });
+    for (let attempt = 0; attempt < delays.length; attempt++) {
+      resp = await fetch(url, { headers: { Authorization: `Basic ${auth}` } });
       if (resp.ok) break;
-      console.warn(`⏳ Recording not ready (status ${resp.status}), retry ${attempt}/4`);
-      await sleep(1500);
+      console.warn(
+        `⏳ Recording not ready (status ${resp.status}), retry ${attempt + 1}/${delays.length}`
+      );
+      await sleep(delays[attempt]);
     }
 
     if (!resp || !resp.ok) {
       throw new Error(`❌ Failed to download: ${resp?.status}`);
     }
 
-    const tempFile = path.join("/tmp", `recording-${Date.now()}.mp3`);
+    const tempFile = path.join("/tmp", `recording-${Date.now()}.wav`);
     const buffer = await resp.arrayBuffer();
     fs.writeFileSync(tempFile, Buffer.from(buffer));
     console.log("📥 Recording saved locally:", tempFile);
@@ -154,9 +156,10 @@ export default async function handler(req, res) {
           action: `https://dentist-ivr-poc.vercel.app/api/voice?step=collect&lang=3`,
           method: "POST",
           maxLength: "60",
-          timeout: "3",            // détection de silence plus rapide
-          trim: "trim-silence",    // Twilio coupe les silences
+          timeout: "6",
+          trim: "do-not-trim",
           playBeep: false,
+          finishOnKey: "#",
         });
       } else {
         // EN / FR : Gather STT Twilio
