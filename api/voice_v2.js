@@ -83,14 +83,14 @@ async function transcribeWithHuggingFace(audioFile, language = "he") {
     try {
         logWithTime("🤗 METHOD: Hugging Face Whisper (open source)");
         logWithTime(`📋 Language: ${language === "he" ? "Hebrew" : "English"}`);
-        
+
         const hfToken = process.env.HUGGINGFACE_API_KEY || "";
         const hasToken = !!hfToken;
         logWithTime(`🔑 API Key: ${hasToken ? "✅ Present" : "⚠️ Not set (using free tier with rate limit)"}`);
-        
+
         const model = language === "he" ? "openai/whisper-small" : "openai/whisper-base";
         logWithTime(`🤖 Model: ${model}`);
-        
+
         const readTimer = timeStart("Reading audio file");
         const audioBytes = fs.readFileSync(audioFile);
         const fileSize = (audioBytes.length / 1024).toFixed(2);
@@ -104,10 +104,9 @@ async function transcribeWithHuggingFace(audioFile, language = "he") {
 
         const apiTimer = timeStart("Hugging Face API call");
         logWithTime(`🌐 API URL: https://api-inference.huggingface.co/models/${model}`);
-        
+
         const response = await fetch(
-            `https://api-inference.huggingface.co/models/${model}`,
-            {
+            `https://api-inference.huggingface.co/models/${model}`, {
                 method: 'POST',
                 headers: headers,
                 body: audioBytes,
@@ -135,7 +134,7 @@ async function transcribeWithHuggingFace(audioFile, language = "he") {
         const parseTimer = timeStart("Parsing API response");
         const data = await response.json();
         parseTimer();
-        
+
         const transcription = data.text || (data[0] && data[0].text) || (Array.isArray(data) && data[0] && data[0].transcription);
 
         if (transcription) {
@@ -173,31 +172,31 @@ async function transcribeAudioFromTwilio(recordingUrl) {
 
         const url = `${recordingUrl}.wav`;
         logWithTime(`📥 Download URL: ${url}`);
-        
+
         const downloadTimer = timeStart("Downloading recording from Twilio");
         const delays = [200, 400, 800]; // Très rapides pour minimiser la latence
         let resp;
         let downloadAttempts = 0;
-        
+
         for (let attempt = 0; attempt < delays.length; attempt++) {
             downloadAttempts++;
             const attemptTimer = timeStart(`Download attempt ${downloadAttempts}`);
             resp = await fetch(url, { headers: { Authorization: `Basic ${auth}` } });
             attemptTimer();
-            
+
             logWithTime(`📡 Download attempt ${downloadAttempts}/${delays.length} - Status: ${resp.status}`);
-            
+
             if (resp.ok) {
                 logWithTime("✅ Recording downloaded successfully");
                 break;
             }
-            
+
             if (attempt < delays.length - 1) {
                 logWithTime(`⏳ Waiting ${delays[attempt]}ms before retry`);
                 await sleep(delays[attempt]);
             }
         }
-        
+
         const downloadDuration = downloadTimer();
         logWithTime(`📊 Download completed in ${downloadDuration}ms`);
 
@@ -219,7 +218,7 @@ async function transcribeAudioFromTwilio(recordingUrl) {
         logWithTime("═══════════════════════════════════════════════════════");
         logWithTime("🤗 USING HUGGING FACE WHISPER (FREE & FAST)");
         logWithTime("═══════════════════════════════════════════════════════");
-        
+
         const transcription = await transcribeWithHuggingFace(tempFile, "he");
 
         const cleanupTimer = timeStart("Cleaning up temp file");
@@ -237,7 +236,7 @@ async function transcribeAudioFromTwilio(recordingUrl) {
         }
         logWithTime(`⏱️ TOTAL PROCESS TIME: ${totalDuration}ms (${(totalDuration/1000).toFixed(2)}s)`);
         logWithTime("═══════════════════════════════════════════════════════");
-        
+
         return transcription || "";
     } catch (err) {
         totalTimer();
@@ -252,7 +251,7 @@ async function transcribeAudioFromTwilio(recordingUrl) {
 /* ---------- Main Twilio Webhook ---------- */
 export default async function handler(req, res) {
     const requestTimer = timeStart("Total Request Handler");
-    
+
     logWithTime("═══════════════════════════════════════════════════════");
     logWithTime("🟢 NEW REQUEST");
     logWithTime("═══════════════════════════════════════════════════════");
@@ -333,7 +332,7 @@ export default async function handler(req, res) {
                 };
 
                 logWithTime(`📢 Playing prompt: "${prompts[key]}"`);
-                
+
                 const gather = vr.gather({
                     input: "speech",
                     action: `https://dentist-ivr-poc.vercel.app/api/voice_v2?step=collect&lang=${key}`,
@@ -487,7 +486,7 @@ Return strict JSON only:
             logWithTime("✅ REQUEST COMPLETED");
             logWithTime(`⏱️ TOTAL REQUEST TIME: ${totalRequestDuration}ms (${(totalRequestDuration/1000).toFixed(2)}s)`);
             logWithTime("═══════════════════════════════════════════════════════");
-            
+
             res.setHeader("Content-Type", "text/xml");
             res.send(vr.toString());
             return;
