@@ -11,7 +11,7 @@
             background: #f8f8f8;
             padding: 20px;
         }
-
+        
         button {
             margin: 10px;
             padding: 10px 20px;
@@ -19,12 +19,12 @@
             border-radius: 8px;
             cursor: pointer;
         }
-
+        
         button:disabled {
             opacity: 0.6;
             cursor: not-allowed;
         }
-
+        
         #log {
             background: #fff;
             border: 1px solid #ccc;
@@ -53,21 +53,80 @@
 
         let device, connection;
 
-        function loadTwilioSdk() {
+        // Diagnostics hooks
+        window.onerror = function (msg, url, line, col, error) {
+            log(`🐞 window.onerror: ${msg} at ${url}:${line}:${col}`);
+            if (error && error.stack) log(error.stack);
+        };
+        window.onunhandledrejection = function (e) {
+            log(`🐞 unhandledrejection: ${e.reason && e.reason.message ? e.reason.message : e.reason}`);
+        };
+        (function envLogs() {
+            try {
+                log(`🌐 Location: ${location.href}`);
+                log(`🔒 Protocol: ${location.protocol}`);
+                log(`🧭 Referrer: ${document.referrer || "-"}`);
+                log(`🧩 UA: ${navigator.userAgent}`);
+                if (navigator.connection) {
+                    const nc = navigator.connection;
+                    log(`📶 Net: type=${nc.effectiveType}, downlink=${nc.downlink}Mb, rtt=${nc.rtt}ms, saveData=${nc.saveData}`);
+                }
+            } catch (_) {}
+        })();
+
+        async function probeCdn(url) {
+            try {
+                const res = await fetch(url, { method: "GET", mode: "no-cors" });
+                // With no-cors we can't read details, but we can still know it didn't throw
+                log(`🔎 probe(no-cors) ${url} => ok (opaque)`);
+            } catch (e1) {
+                log(`🔎 probe(no-cors) ${url} => ERR: ${e1.message}`);
+            }
+            try {
+                const res2 = await fetch(url, { method: "GET" });
+                log(`🔎 probe(cors) ${url} => ${res2.status} ${res2.statusText}`);
+                const hdrs = [];
+                res2.headers.forEach((v, k) => hdrs.push(`${k}: ${v}`));
+                if (hdrs.length) log(`🔎 headers:\n${hdrs.join("\n")}`);
+            } catch (e2) {
+                log(`🔎 probe(cors) ${url} => ERR: ${e2.message}`);
+            }
+        }
+
+        function loadScript(url) {
             return new Promise((resolve) => {
-                const ready = () => (typeof Twilio !== "undefined" && Twilio.Device);
-                if (ready()) return resolve(true);
-                // Try fallback CDN if primary not loaded after a tick
-                setTimeout(() => {
-                    if (ready()) return resolve(true);
-                    const s = document.createElement("script");
-                    s.src = "https://media.twiliocdn.com/sdk/js/voice/releases/2.7.3/twilio.min.js";
-                    s.async = true;
-                    s.onload = () => resolve(true);
-                    s.onerror = () => resolve(false);
-                    document.head.appendChild(s);
-                }, 0);
+                const s = document.createElement("script");
+                s.src = url;
+                s.async = true;
+                s.crossOrigin = "anonymous";
+                s.referrerPolicy = "no-referrer-when-downgrade";
+                s.onload = () => resolve({ ok: true });
+                s.onerror = (e) => {
+                    log(`❌ script onerror for ${url}`);
+                    resolve({ ok: false, error: e });
+                };
+                document.head.appendChild(s);
             });
+        }
+
+        async function loadTwilioSdk() {
+            const primary = "https://sdk.twilio.com/js/voice/releases/2.7.3/twilio.min.js";
+            const fallback = "https://media.twiliocdn.com/sdk/js/voice/releases/2.7.3/twilio.min.js";
+            const ready = () => (typeof Twilio !== "undefined" && Twilio.Device);
+            if (ready()) return true;
+            log(`⬇️ loading SDK primary: ${primary}`);
+            await probeCdn(primary);
+            let r1 = await loadScript(primary);
+            await new Promise(r => setTimeout(r, 200));
+            if (ready()) return true;
+            log(`⚠️ primary load result: ${r1.ok ? "ok" : "error"}`);
+            if (!r1.ok) log(`ℹ️ trying fallback: ${fallback}`);
+            await probeCdn(fallback);
+            let r2 = await loadScript(fallback);
+            await new Promise(r => setTimeout(r, 200));
+            if (ready()) return true;
+            log(`⚠️ fallback load result: ${r2.ok ? "ok" : "error"}`);
+            return false;
         }
 
         async function initTwilio() {
@@ -79,7 +138,9 @@
                 }
                 log("🔗 Fetching Twilio access token...");
                 const res = await fetch("/api/token");
-                const { token } = await res.json();
+                const {
+                    token
+                } = await res.json();
                 if (!token) throw new Error("No token returned from /api/token");
 
                 log("✅ Token received. Initializing Twilio Device v2...");

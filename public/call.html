@@ -36,20 +36,48 @@
     <p id="status">Idle</p>
 
     <script>
-        function loadTwilioSdk() {
+        window.onerror = function (msg, url, line, col, error) {
+            document.getElementById("status").textContent = `🐞 window.onerror: ${msg}`;
+        };
+        window.onunhandledrejection = function (e) {
+            document.getElementById("status").textContent = `🐞 unhandledrejection: ${e.reason}`;
+        };
+
+        async function probeCdn(url) {
+            try { await fetch(url, { method: "GET", mode: "no-cors" }); } catch (_) {}
+            try {
+                const r = await fetch(url, { method: "GET" });
+                console.log("probe", url, r.status);
+            } catch (e) {
+                console.warn("probe error", url, e.message);
+            }
+        }
+
+        function loadScript(url) {
             return new Promise((resolve) => {
-                const ready = () => (typeof Twilio !== "undefined" && Twilio.Device);
-                if (ready()) return resolve(true);
-                setTimeout(() => {
-                    if (ready()) return resolve(true);
-                    const s = document.createElement("script");
-                    s.src = "https://media.twiliocdn.com/sdk/js/voice/releases/2.7.3/twilio.min.js";
-                    s.async = true;
-                    s.onload = () => resolve(true);
-                    s.onerror = () => resolve(false);
-                    document.head.appendChild(s);
-                }, 0);
+                const s = document.createElement("script");
+                s.src = url;
+                s.async = true;
+                s.crossOrigin = "anonymous";
+                s.onload = () => resolve(true);
+                s.onerror = () => resolve(false);
+                document.head.appendChild(s);
             });
+        }
+
+        async function loadTwilioSdk() {
+            const primary = "https://sdk.twilio.com/js/voice/releases/2.7.3/twilio.min.js";
+            const fallback = "https://media.twiliocdn.com/sdk/js/voice/releases/2.7.3/twilio.min.js";
+            const ready = () => (typeof Twilio !== "undefined" && Twilio.Device);
+            if (ready()) return true;
+            await probeCdn(primary);
+            const ok1 = await loadScript(primary);
+            await new Promise(r => setTimeout(r, 200));
+            if (ready()) return true;
+            await probeCdn(fallback);
+            const ok2 = await loadScript(fallback);
+            await new Promise(r => setTimeout(r, 200));
+            return ready();
         }
 
         async function init() {
