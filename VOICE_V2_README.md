@@ -8,19 +8,28 @@
 
 Tester des alternatives à OpenAI Whisper pour réduire la latence de transcription hébreu (actuellement ~8 secondes).
 
-## 🔄 Méthodes de transcription testées
+## 🔄 Méthodes de transcription open source testées
 
-### 1. Google Cloud Speech-to-Text (priorité)
+### 1. Hugging Face Inference API (Whisper open source) - Priorité
 
-- **Avantages** : Très rapide (~1-2s), streaming possible
-- **Configuration** : Nécessite `GOOGLE_CLOUD_SPEECH_KEY` dans les variables d'environnement
-- **Fallback** : Si non configuré ou en cas d'erreur, utilise Whisper
+- **Avantages** : Gratuit, open source, basé sur Whisper, supporte hébreu et anglais
+- **Modèles** : `openai/whisper-small` (hébreu), `openai/whisper-base` (anglais)
+- **Configuration** : Optionnel - `HUGGINGFACE_API_KEY` (gratuit sans clé mais avec rate limit)
+- **Source** : [Hugging Face Models](https://huggingface.co/models?search=whisper)
+- **Fallback** : Si échoue, essaie Gladia puis OpenAI Whisper
 
-### 2. OpenAI Whisper (fallback)
+### 2. Gladia API (open source)
 
-- **Avantages** : Méthode actuelle, très précise
+- **Avantages** : Open source, gratuit avec plan free, supporte hébreu et anglais
+- **Configuration** : Nécessite `GLADIA_API_KEY` (gratuit sur [gladia.io](https://www.gladia.io))
+- **Utilisation** : Fallback si Hugging Face échoue
+- **Source** : [Gladia.io](https://www.gladia.io)
+
+### 3. OpenAI Whisper (fallback final)
+
+- **Avantages** : Très précis, méthode de référence
 - **Configuration** : Utilise `OPENAI_API_KEY` (déjà configuré)
-- **Utilisation** : Fallback automatique si Google Cloud STT échoue
+- **Utilisation** : Fallback final si les solutions open source échouent
 
 ## 🚀 Utilisation
 
@@ -48,18 +57,26 @@ Les URLs dans `voice_v2.js` pointent vers `/api/voice_v2` au lieu de `/api/voice
 
 ### Variables d'environnement nécessaires
 
-Pour utiliser Google Cloud Speech-to-Text :
-
+**Optionnel - Hugging Face (recommandé pour commencer) :**
 ```bash
-GOOGLE_CLOUD_SPEECH_KEY=votre_clé_api_google_cloud
+HUGGINGFACE_API_KEY=votre_clé_huggingface  # Optionnel, gratuit sans clé
 ```
 
-Pour obtenir une clé :
+Pour obtenir une clé Hugging Face (optionnel) :
+1. Aller sur [Hugging Face](https://huggingface.co/settings/tokens)
+2. Créer un token d'accès
+3. Ajouter dans les variables d'environnement Vercel
 
-1. Aller sur [Google Cloud Console](https://console.cloud.google.com/)
-2. Activer l'API "Cloud Speech-to-Text"
-3. Créer une clé API dans "Credentials"
-4. Ajouter la clé dans les variables d'environnement Vercel
+**Optionnel - Gladia (alternative) :**
+```bash
+GLADIA_API_KEY=votre_clé_gladia
+```
+
+Pour obtenir une clé Gladia :
+1. Aller sur [Gladia.io](https://www.gladia.io)
+2. Créer un compte gratuit
+3. Obtenir votre clé API
+4. Ajouter dans les variables d'environnement Vercel
 
 ### Variables déjà nécessaires (comme voice.js)
 
@@ -75,11 +92,12 @@ Pour obtenir une clé :
 
 ## 📊 Comparaison des performances
 
-| Méthode                  | Latence estimée | Précision  | Coût        |
-| ------------------------ | --------------- | ---------- | ----------- |
-| **Whisper (actuel)**     | ~3-4s           | ⭐⭐⭐⭐⭐ | ~$0.006/min |
-| **Google Cloud STT**     | ~1-2s           | ⭐⭐⭐⭐   | ~$0.006/15s |
-| **Fallback automatique** | ~3-4s           | ⭐⭐⭐⭐⭐ | Variable    |
+| Méthode                  | Latence estimée | Précision  | Coût        | Type        |
+| ------------------------ | --------------- | ---------- | ----------- | ----------- |
+| **Hugging Face Whisper** | ~2-4s           | ⭐⭐⭐⭐   | Gratuit     | Open Source |
+| **Gladia**                | ~2-3s           | ⭐⭐⭐⭐   | Gratuit     | Open Source |
+| **OpenAI Whisper**        | ~3-4s           | ⭐⭐⭐⭐⭐ | ~$0.006/min | Propriétaire |
+| **Fallback automatique**  | ~3-4s           | ⭐⭐⭐⭐⭐ | Variable    | Mixte       |
 
 ## 🔍 Logs
 
