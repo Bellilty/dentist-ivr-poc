@@ -4,7 +4,6 @@
 <head>
     <meta charset="UTF-8" />
     <title>🦷 Dentist IVR — Browser Test</title>
-    <script src="https://sdk.twilio.com/js/voice/releases/2.7.3/twilio.min.js"></script>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -43,22 +42,27 @@
             document.getElementById("status").textContent = `🐞 unhandledrejection: ${e.reason}`;
         };
 
-        async function probeCdn(url) {
-            try { await fetch(url, { method: "GET", mode: "no-cors" }); } catch (_) {}
+        async function probe(url, label) {
             try {
-                const r = await fetch(url, { method: "GET" });
-                console.log("probe", url, r.status);
+                const resOpaque = await fetch(url, { method: "GET", mode: "no-cors" });
+                console.log(`probe(no-cors) ${label}`, resOpaque.type);
             } catch (e) {
-                console.warn("probe error", url, e.message);
+                console.warn(`probe(no-cors) ${label} error`, e.message);
+            }
+            try {
+                const res = await fetch(url, { method: "GET" });
+                console.log(`probe(cors) ${label}`, res.status, res.statusText);
+            } catch (e) {
+                console.warn(`probe(cors) ${label} error`, e.message);
             }
         }
 
-        function loadScript(url) {
+        function loadScript(url, opts = {}) {
             return new Promise((resolve) => {
                 const s = document.createElement("script");
                 s.src = url;
                 s.async = true;
-                s.crossOrigin = "anonymous";
+                if (opts.crossOrigin !== false) s.crossOrigin = "anonymous";
                 s.onload = () => resolve(true);
                 s.onerror = () => resolve(false);
                 document.head.appendChild(s);
@@ -66,17 +70,32 @@
         }
 
         async function loadTwilioSdk() {
-            const primary = "https://sdk.twilio.com/js/voice/releases/2.7.3/twilio.min.js";
-            const fallback = "https://media.twiliocdn.com/sdk/js/voice/releases/2.7.3/twilio.min.js";
+            const sources = [
+                { label: "primary", url: "https://sdk.twilio.com/js/voice/releases/2.7.3/twilio.min.js" },
+                { label: "cdn-fallback", url: "https://media.twiliocdn.com/sdk/js/voice/releases/2.7.3/twilio.min.js" },
+                { label: "local", url: "/vendor/twilio-voice-sdk-2.7.3.min.js", local: true },
+            ];
             const ready = () => (typeof Twilio !== "undefined" && Twilio.Device);
             if (ready()) return true;
-            await probeCdn(primary);
-            const ok1 = await loadScript(primary);
-            await new Promise(r => setTimeout(r, 200));
-            if (ready()) return true;
-            await probeCdn(fallback);
-            const ok2 = await loadScript(fallback);
-            await new Promise(r => setTimeout(r, 200));
+            for (const src of sources) {
+                console.log(`loading Twilio SDK (${src.label})`, src.url);
+                if (src.local) {
+                    try {
+                        const res = await fetch(src.url, { method: "GET" });
+                        console.log(`probe(local) ${src.url}`, res.status);
+                    } catch (e) {
+                        console.warn(`probe(local) ${src.url} error`, e.message);
+                    }
+                } else {
+                    await probe(src.url, src.label);
+                }
+                await loadScript(src.url, { crossOrigin: src.local ? false : "anonymous" });
+                await new Promise(r => setTimeout(r, 300));
+                if (ready()) {
+                    console.log(`Twilio SDK ready via ${src.label}`);
+                    return true;
+                }
+            }
             return ready();
         }
 

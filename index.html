@@ -4,7 +4,6 @@
 <head>
     <meta charset="UTF-8" />
     <title>Call Dentist IVR (Free Test)</title>
-    <script src="https://sdk.twilio.com/js/voice/releases/2.7.3/twilio.min.js"></script>
 </head>
 
 <body style="font-family: sans-serif; text-align: center; margin-top: 100px;">
@@ -14,25 +13,50 @@
 
     <script>
         async function getToken() {
-            const res = await fetch("https://dentist-ivr-poc.vercel.app/api/token");
+            const res = await fetch("/api/token");
             const data = await res.json();
             return data.token;
         }
 
-        function loadTwilioSdk() {
+        function loadScript(url, opts = {}) {
             return new Promise((resolve) => {
-                const ready = () => (typeof Twilio !== "undefined" && Twilio.Device);
-                if (ready()) return resolve(true);
-                setTimeout(() => {
-                    if (ready()) return resolve(true);
-                    const s = document.createElement("script");
-                    s.src = "https://media.twiliocdn.com/sdk/js/voice/releases/2.7.3/twilio.min.js";
-                    s.async = true;
-                    s.onload = () => resolve(true);
-                    s.onerror = () => resolve(false);
-                    document.head.appendChild(s);
-                }, 0);
+                const s = document.createElement("script");
+                s.src = url;
+                s.async = true;
+                if (opts.crossOrigin !== false) s.crossOrigin = "anonymous";
+                s.onload = () => resolve(true);
+                s.onerror = () => resolve(false);
+                document.head.appendChild(s);
             });
+        }
+
+        async function loadTwilioSdk() {
+            const sources = [
+                { label: "primary", url: "https://sdk.twilio.com/js/voice/releases/2.7.3/twilio.min.js" },
+                { label: "cdn-fallback", url: "https://media.twiliocdn.com/sdk/js/voice/releases/2.7.3/twilio.min.js" },
+                { label: "local", url: "/vendor/twilio-voice-sdk-2.7.3.min.js", local: true },
+            ];
+            const ready = () => (typeof Twilio !== "undefined" && Twilio.Device);
+            if (ready()) return true;
+            for (const src of sources) {
+                if (src.local) {
+                    try {
+                        const res = await fetch(src.url, { method: "GET" });
+                        console.log(`probe(local) ${src.url}`, res.status);
+                    } catch (e) {
+                        console.warn(`probe(local) ${src.url} error`, e.message);
+                    }
+                } else {
+                    try { await fetch(src.url, { method: "GET", mode: "no-cors" }); } catch (_) {}
+                }
+                await loadScript(src.url, { crossOrigin: src.local ? false : "anonymous" });
+                await new Promise((r) => setTimeout(r, 300));
+                if (ready()) {
+                    console.log(`Twilio SDK loaded via ${src.label}`);
+                    return true;
+                }
+            }
+            return ready();
         }
 
         async function initTwilio() {

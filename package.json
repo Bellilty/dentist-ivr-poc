@@ -11,6 +11,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@twilio/voice-sdk": "^2.7.3",
     "body-parser": "^2.2.0",
     "chrono-node": "^2.9.0",
     "dotenv": "^17.2.3",

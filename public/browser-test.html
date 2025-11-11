@@ -4,7 +4,6 @@
 <head>
     <meta charset="UTF-8" />
     <title>🦷 Dentist IVR — Browser Test</title>
-    <script src="https://sdk.twilio.com/js/voice/releases/2.7.3/twilio.min.js"></script>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -54,11 +53,11 @@
         let device, connection;
 
         // Diagnostics hooks
-        window.onerror = function (msg, url, line, col, error) {
+        window.onerror = function(msg, url, line, col, error) {
             log(`🐞 window.onerror: ${msg} at ${url}:${line}:${col}`);
             if (error && error.stack) log(error.stack);
         };
-        window.onunhandledrejection = function (e) {
+        window.onunhandledrejection = function(e) {
             log(`🐞 unhandledrejection: ${e.reason && e.reason.message ? e.reason.message : e.reason}`);
         };
         (function envLogs() {
@@ -76,14 +75,19 @@
 
         async function probeCdn(url) {
             try {
-                const res = await fetch(url, { method: "GET", mode: "no-cors" });
+                const res = await fetch(url, {
+                    method: "GET",
+                    mode: "no-cors"
+                });
                 // With no-cors we can't read details, but we can still know it didn't throw
                 log(`🔎 probe(no-cors) ${url} => ok (opaque)`);
             } catch (e1) {
                 log(`🔎 probe(no-cors) ${url} => ERR: ${e1.message}`);
             }
             try {
-                const res2 = await fetch(url, { method: "GET" });
+                const res2 = await fetch(url, {
+                    method: "GET"
+                });
                 log(`🔎 probe(cors) ${url} => ${res2.status} ${res2.statusText}`);
                 const hdrs = [];
                 res2.headers.forEach((v, k) => hdrs.push(`${k}: ${v}`));
@@ -93,40 +97,61 @@
             }
         }
 
-        function loadScript(url) {
+        function loadScript(url, opts = {}) {
             return new Promise((resolve) => {
                 const s = document.createElement("script");
                 s.src = url;
                 s.async = true;
-                s.crossOrigin = "anonymous";
-                s.referrerPolicy = "no-referrer-when-downgrade";
-                s.onload = () => resolve({ ok: true });
+                if (opts.crossOrigin !== false) s.crossOrigin = "anonymous";
+                if (opts.referrerPolicy) s.referrerPolicy = opts.referrerPolicy;
+                s.onload = () => resolve({
+                    ok: true
+                });
                 s.onerror = (e) => {
                     log(`❌ script onerror for ${url}`);
-                    resolve({ ok: false, error: e });
+                    resolve({
+                        ok: false,
+                        error: e
+                    });
                 };
                 document.head.appendChild(s);
             });
         }
 
         async function loadTwilioSdk() {
-            const primary = "https://sdk.twilio.com/js/voice/releases/2.7.3/twilio.min.js";
-            const fallback = "https://media.twiliocdn.com/sdk/js/voice/releases/2.7.3/twilio.min.js";
+            const sources = [
+                { label: "primary", url: "https://sdk.twilio.com/js/voice/releases/2.7.3/twilio.min.js" },
+                { label: "cdn-fallback", url: "https://media.twiliocdn.com/sdk/js/voice/releases/2.7.3/twilio.min.js" },
+                { label: "local", url: "/vendor/twilio-voice-sdk-2.7.3.min.js", local: true }
+            ];
             const ready = () => (typeof Twilio !== "undefined" && Twilio.Device);
             if (ready()) return true;
-            log(`⬇️ loading SDK primary: ${primary}`);
-            await probeCdn(primary);
-            let r1 = await loadScript(primary);
-            await new Promise(r => setTimeout(r, 200));
-            if (ready()) return true;
-            log(`⚠️ primary load result: ${r1.ok ? "ok" : "error"}`);
-            if (!r1.ok) log(`ℹ️ trying fallback: ${fallback}`);
-            await probeCdn(fallback);
-            let r2 = await loadScript(fallback);
-            await new Promise(r => setTimeout(r, 200));
-            if (ready()) return true;
-            log(`⚠️ fallback load result: ${r2.ok ? "ok" : "error"}`);
-            return false;
+
+            for (const src of sources) {
+                log(`⬇️ loading SDK (${src.label}): ${src.url}`);
+                if (src.local) {
+                    try {
+                        const res = await fetch(src.url, { method: "GET" });
+                        log(`🔎 probe(local) ${src.url} => ${res.status} ${res.statusText}`);
+                    } catch (e) {
+                        log(`🔎 probe(local) ${src.url} => ERR: ${e.message}`);
+                    }
+                } else {
+                    await probeCdn(src.url);
+                }
+
+                const result = await loadScript(src.url, { crossOrigin: src.local ? false : "anonymous" });
+                await new Promise((r) => setTimeout(r, 300));
+
+                if (ready()) {
+                    log(`✅ SDK loaded from ${src.label}`);
+                    return true;
+                }
+
+                log(`⚠️ ${src.label} load result: ${result.ok ? "ok" : "error"}`);
+            }
+
+            return ready();
         }
 
         async function initTwilio() {
