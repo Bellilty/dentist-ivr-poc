@@ -277,14 +277,11 @@ Return strict JSON only:
                     const localized = new Date(whenISO).toLocaleString("en-US", {
                         timeZone: process.env.CLINIC_TIMEZONE,
                     });
-                    const summaryName = /[\u0590-\u05FF]/.test(name) ?
-                        transliterateHebrew(name) :
-                        name;
                     vr.say({
                             language: "en-US",
                             voice: "Polly.Joanna",
                         },
-                        `Appointment confirmed for ${summaryName}. Date and time ${localized}.`
+                        `Appointment confirmed. Date and time ${localized}.`
                     );
                 } else {
                     const msgs = {
