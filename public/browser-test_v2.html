@@ -3,12 +3,44 @@
 
 <head>
     <meta charset="UTF-8" />
-    <title>🦷 Dentist IVR — Browser Test</title>
+    <title>🦷 Dentist IVR V2 — Browser Test (Alternative STT)</title>
     <style>
         body {
             font-family: Arial, sans-serif;
-            background: #f8f8f8;
+            background: #f0f8ff;
             padding: 20px;
+        }
+        
+        .v2-banner {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            text-align: center;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        
+        .v2-banner h2 {
+            margin: 0 0 10px 0;
+        }
+        
+        .v2-banner p {
+            margin: 5px 0;
+            font-size: 14px;
+            opacity: 0.95;
+        }
+        
+        .warning-box {
+            background: #fff3cd;
+            border: 2px solid #ffc107;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+        
+        .warning-box strong {
+            color: #856404;
         }
         
         button {
@@ -17,6 +49,14 @@
             font-size: 16px;
             border-radius: 8px;
             cursor: pointer;
+            border: none;
+            background: #667eea;
+            color: white;
+            transition: background 0.3s;
+        }
+        
+        button:hover:not(:disabled) {
+            background: #5568d3;
         }
         
         button:disabled {
@@ -32,13 +72,23 @@
             height: 300px;
             overflow-y: auto;
             white-space: pre-line;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
         }
     </style>
 </head>
 
 <body>
-    <h2>🦷 Dentist IVR — Browser Test</h2>
-    <button id="callBtn" disabled>📞 Call +19296282092</button>
+    <div class="v2-banner">
+        <h2>🦷 Dentist IVR V2 — Browser Test</h2>
+        <p>Version de test avec transcription alternative (Google Cloud STT + Whisper fallback)</p>
+    </div>
+    
+    <div class="warning-box">
+        <strong>⚠️ Important :</strong> Pour tester cette version, vous devez configurer votre numéro Twilio dans la console Twilio pour pointer vers <code>https://dentist-ivr-poc.vercel.app/api/voice_v2</code> au lieu de <code>/api/voice</code>
+    </div>
+    
+    <button id="callBtn" disabled>📞 Call +19296282092 (V2)</button>
     <button id="hangupBtn" disabled>❌ Hang Up</button>
     <div id="log"></div>
 
@@ -46,7 +96,7 @@
         const logDiv = document.getElementById("log");
         const log = (msg) => {
             const t = new Date().toLocaleTimeString();
-            logDiv.textContent += `[${t}] ${msg}\n`;
+            logDiv.textContent += `[${t}] [V2] ${msg}\n`;
             logDiv.scrollTop = logDiv.scrollHeight;
         };
 
@@ -66,6 +116,7 @@
                 log(`🔒 Protocol: ${location.protocol}`);
                 log(`🧭 Referrer: ${document.referrer || "-"}`);
                 log(`🧩 UA: ${navigator.userAgent}`);
+                log(`📌 Testing V2 endpoint: /api/voice_v2`);
                 if (navigator.connection) {
                     const nc = navigator.connection;
                     log(`📶 Net: type=${nc.effectiveType}, downlink=${nc.downlink}Mb, rtt=${nc.rtt}ms, saveData=${nc.saveData}`);
@@ -79,7 +130,6 @@
                     method: "GET",
                     mode: "no-cors"
                 });
-                // With no-cors we can't read details, but we can still know it didn't throw
                 log(`🔎 probe(no-cors) ${url} => ok (opaque)`);
             } catch (e1) {
                 log(`🔎 probe(no-cors) ${url} => ERR: ${e1.message}`);
@@ -179,6 +229,7 @@
                 if (!token) throw new Error("No token returned from /api/token");
 
                 log("✅ Token received. Initializing Twilio Device v2...");
+                log("📌 Remember: Twilio webhook must point to /api/voice_v2");
                 device = new Twilio.Device(token, {
                     codecPreferences: ["opus", "pcmu"],
                     fakeLocalDTMF: true,
@@ -186,7 +237,7 @@
                 });
 
                 device.on("registered", () => {
-                    log("🎧 Device registered — you can now call the IVR.");
+                    log("🎧 Device registered — you can now call the IVR V2.");
                     document.getElementById("callBtn").disabled = false;
                 });
 
@@ -234,11 +285,12 @@
         document.getElementById("callBtn").onclick = async() => {
             try {
                 if (!device) return log("⚠️ Device not ready yet!");
-                log("📞 Connecting to Dentist IVR...");
+                log("📞 Connecting to Dentist IVR V2...");
+                log("🔍 Testing alternative STT (Google Cloud + Whisper fallback)");
                 call = await device.connect();
                 document.getElementById("callBtn").disabled = true;
                 document.getElementById("hangupBtn").disabled = false;
-                call.on("accept", () => log("✅ Call connected — speak freely."));
+                call.on("accept", () => log("✅ Call connected — speak freely (V2 mode)."));
                 call.on("error", (err) => log("❌ Call error: " + err.message));
                 call.on("disconnect", () => log("📴 Call ended."));
             } catch (e) {
@@ -259,3 +311,4 @@
 </body>
 
 </html>
+
