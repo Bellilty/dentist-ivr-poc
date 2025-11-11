@@ -270,6 +270,16 @@ Return strict JSON only:
         if (lang === "3") {
           // Confirmation audio pré-enregistrée en hébreu
           vr.play("https://dentist-ivr-poc.vercel.app/audio/confirm-he.mp3");
+          const localized = new Date(whenISO).toLocaleString("en-US", {
+            timeZone: process.env.CLINIC_TIMEZONE,
+          });
+          vr.say(
+            {
+              language: "en-US",
+              voice: "Polly.Joanna",
+            },
+            `Appointment confirmed for ${name}. Date and time ${localized}.`
+          );
         } else {
           const msgs = {
             "1": `Thank you ${name}. Your appointment has been scheduled for ${new Date(

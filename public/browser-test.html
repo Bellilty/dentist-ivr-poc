@@ -214,19 +214,24 @@
         keypad.style.display = "grid";
         keypad.style.gridTemplateColumns = "repeat(3, 60px)";
         keypad.style.gap = "8px";
-        const keys = ["1","2","3","4","5","6","7","8","9","*","0","#"];
+        const keys = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "*", "0", "#"];
         keys.forEach(k => {
             const b = document.createElement("button");
             b.textContent = k;
             b.onclick = () => {
                 if (!call) return log("⚠️ No active call to send DTMF.");
-                try { call.sendDigits(k); log(`📟 DTMF sent: ${k}`); } catch (e) { log(`❌ DTMF error: ${e.message}`); }
+                try {
+                    call.sendDigits(k);
+                    log(`📟 DTMF sent: ${k}`);
+                } catch (e) {
+                    log(`❌ DTMF error: ${e.message}`);
+                }
             };
             keypad.appendChild(b);
         });
         document.body.insertBefore(keypad, document.getElementById("log"));
 
-        document.getElementById("callBtn").onclick = async () => {
+        document.getElementById("callBtn").onclick = async() => {
             try {
                 if (!device) return log("⚠️ Device not ready yet!");
                 log("📞 Connecting to Dentist IVR...");
