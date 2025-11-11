@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8" />
     <title>🦷 Dentist IVR — Browser Test</title>
-    <script src="https://media.twiliocdn.com/sdk/js/voice/releases/2.8.0/twilio.min.js"></script>
+    <script src="https://sdk.twilio.com/js/voice/releases/2.7.3/twilio.min.js"></script>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -61,6 +61,10 @@
                 if (!token) throw new Error("No token returned from /api/token");
 
                 log("✅ Token received. Initializing Twilio Device v2...");
+                if (typeof Twilio === "undefined" || !Twilio.Device) {
+                    log("❌ SDK failed to load: Twilio is not defined. Hard refresh the page.");
+                    return;
+                }
                 device = new Twilio.Device(token, {
                     codecPreferences: ["opus", "pcmu"],
                     fakeLocalDTMF: true,

@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8" />
     <title>Call Dentist IVR (Free Test)</title>
-    <script src="https://media.twiliocdn.com/sdk/js/voice/releases/2.8.0/twilio.min.js"></script>
+    <script src="https://sdk.twilio.com/js/voice/releases/2.7.3/twilio.min.js"></script>
 </head>
 
 <body style="font-family: sans-serif; text-align: center; margin-top: 100px;">
@@ -21,6 +21,10 @@
 
         async function initTwilio() {
             const token = await getToken();
+            if (typeof Twilio === "undefined" || !Twilio.Device) {
+                document.getElementById("status").innerText = "❌ SDK failed to load (Twilio undefined). Try hard refresh.";
+                return;
+            }
             const device = new Twilio.Device(token, { debug: true });
 
             device.on("registered", () => {
