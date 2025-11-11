@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8" />
     <title>Call Dentist IVR (Free Test)</title>
-    <script src="https://media.twiliocdn.com/sdk/js/client/v1.14/twilio.min.js"></script>
+    <script src="https://media.twiliocdn.com/sdk/js/voice/releases/2.8.0/twilio.min.js"></script>
 </head>
 
 <body style="font-family: sans-serif; text-align: center; margin-top: 100px;">
@@ -21,13 +21,21 @@
 
         async function initTwilio() {
             const token = await getToken();
-            const device = new Twilio.Device(token, {
-                debug: true,
-            });
+            const device = new Twilio.Device(token, { debug: true });
 
-            device.on("ready", () => {
+            device.on("registered", () => {
                 document.getElementById("status").innerText = "✅ Ready to call";
             });
+
+            device.on("unregistered", () => {
+                document.getElementById("status").innerText = "ℹ️ Device unregistered";
+            });
+
+            device.on("error", (err) => {
+                document.getElementById("status").innerText = "❌ " + err.message;
+            });
+
+            device.register();
 
             document.getElementById("call").onclick = () => {
                 document.getElementById("status").innerText = "🔗 Connecting to IVR...";

@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8" />
     <title>🦷 Dentist IVR — Browser Test</title>
-    <script src="https://media.twiliocdn.com/sdk/js/client/v1.14/twilio.min.js"></script>
+    <script src="https://media.twiliocdn.com/sdk/js/voice/releases/2.8.0/twilio.min.js"></script>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -60,16 +60,21 @@
                 const { token } = await res.json();
                 if (!token) throw new Error("No token returned from /api/token");
 
-                log("✅ Token received. Initializing Twilio Device...");
+                log("✅ Token received. Initializing Twilio Device v2...");
                 device = new Twilio.Device(token, {
                     codecPreferences: ["opus", "pcmu"],
                     fakeLocalDTMF: true,
                     enableRingingState: true,
                 });
 
-                device.on("ready", () => {
-                    log("🎧 Device ready — you can now call the IVR.");
+                device.on("registered", () => {
+                    log("🎧 Device registered — you can now call the IVR.");
                     document.getElementById("callBtn").disabled = false;
+                });
+
+                device.on("unregistered", () => {
+                    log("ℹ️ Device unregistered.");
+                    document.getElementById("callBtn").disabled = true;
                 });
 
                 device.on("error", (err) => log(`⚠️ Device error: ${err.message}`));
@@ -78,6 +83,8 @@
                     document.getElementById("hangupBtn").disabled = true;
                     document.getElementById("callBtn").disabled = false;
                 });
+
+                device.register();
             } catch (err) {
                 log("❌ Initialization error: " + err.message);
             }
@@ -86,6 +93,7 @@
         document.getElementById("callBtn").onclick = () => {
             if (!device) return log("⚠️ Device not ready yet!");
             log("📞 Connecting to Dentist IVR...");
+            if (!device) return log("⚠️ Device not ready yet!");
             connection = device.connect();
             document.getElementById("callBtn").disabled = true;
             document.getElementById("hangupBtn").disabled = false;

@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8" />
     <title>🦷 Dentist IVR — Browser Test</title>
-    <script src="https://media.twiliocdn.com/sdk/js/client/v1.14/twilio.min.js"></script>
+    <script src="https://media.twiliocdn.com/sdk/js/voice/releases/2.8.0/twilio.min.js"></script>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -46,14 +46,21 @@
                 codecPreferences: ["opus", "pcmu"],
             });
 
-            device.on("ready", () => {
+            device.on("registered", () => {
                 document.getElementById("status").textContent = "✅ Ready to call IVR";
                 document.getElementById("call").disabled = false;
+            });
+
+            device.on("unregistered", () => {
+                document.getElementById("status").textContent = "ℹ️ Device unregistered";
+                document.getElementById("call").disabled = true;
             });
 
             device.on("error", (err) => {
                 document.getElementById("status").textContent = "❌ " + err.message;
             });
+
+            device.register();
 
             document.getElementById("call").onclick = () => {
                 document.getElementById("status").textContent = "📞 Connecting to IVR...";
