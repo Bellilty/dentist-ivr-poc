@@ -32,6 +32,7 @@
     <h1>🦷 Dentist IVR — Browser Test</h1>
     <p>Test your IVR for free from the browser</p>
     <button id="call">📞 Call IVR</button>
+    <div id="keypad" style="margin-top:16px; display:grid; grid-template-columns:repeat(3,60px); gap:8px;"></div>
     <p id="status">Idle</p>
 
     <script>
@@ -99,6 +100,23 @@
             return ready();
         }
 
+        let callRef;
+
+        // Build keypad
+        (function buildKeypad() {
+            const keys = ["1","2","3","4","5","6","7","8","9","*","0","#"];
+            const root = document.getElementById("keypad");
+            keys.forEach(k => {
+                const b = document.createElement("button");
+                b.textContent = k;
+                b.onclick = () => {
+                    if (!callRef) { document.getElementById("status").textContent = "⚠️ No active call"; return; }
+                    try { callRef.sendDigits(k); } catch (e) { document.getElementById("status").textContent = "❌ DTMF error: "+e.message; }
+                };
+                root.appendChild(b);
+            });
+        })();
+
         async function init() {
             const sdkOk = await loadTwilioSdk();
             if (!sdkOk || typeof Twilio === "undefined" || !Twilio.Device) {
@@ -130,9 +148,16 @@
 
             device.register();
 
-            document.getElementById("call").onclick = () => {
-                document.getElementById("status").textContent = "📞 Connecting to IVR...";
-                device.connect();
+            document.getElementById("call").onclick = async () => {
+                try {
+                    document.getElementById("status").textContent = "📞 Connecting to IVR...";
+                    callRef = await device.connect();
+                    callRef.on("accept", () => document.getElementById("status").textContent = "✅ Connected");
+                    callRef.on("disconnect", () => document.getElementById("status").textContent = "📴 Disconnected");
+                    callRef.on("error", (e) => document.getElementById("status").textContent = "❌ " + e.message);
+                } catch (e) {
+                    document.getElementById("status").textContent = "❌ Connect error: " + e.message;
+                }
             };
         }
 

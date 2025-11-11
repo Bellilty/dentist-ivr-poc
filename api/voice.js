@@ -172,9 +172,9 @@ export default async function handler(req, res) {
           input: "speech",
           action: `https://dentist-ivr-poc.vercel.app/api/voice?step=collect&lang=${key}`,
           method: "POST",
-          language: langs[key],   // Twilio supporte en-US et fr-FR
-          speechTimeout: "auto",
-          timeout: 20,
+          language: langs[key],
+          speechTimeout: "auto",   // Twilio détermine la fin de parole
+          timeout: 60,             // plus de temps pour parler tranquille
           bargeIn: true,
         });
 

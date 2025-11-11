@@ -50,7 +50,7 @@
             logDiv.scrollTop = logDiv.scrollHeight;
         };
 
-        let device, connection;
+        let device, call;
 
         // Diagnostics hooks
         window.onerror = function(msg, url, line, col, error) {
@@ -119,11 +119,17 @@
         }
 
         async function loadTwilioSdk() {
-            const sources = [
-                { label: "primary", url: "https://sdk.twilio.com/js/voice/releases/2.7.3/twilio.min.js" },
-                { label: "cdn-fallback", url: "https://media.twiliocdn.com/sdk/js/voice/releases/2.7.3/twilio.min.js" },
-                { label: "local", url: "/vendor/twilio-voice-sdk-2.7.3.min.js", local: true }
-            ];
+            const sources = [{
+                label: "primary",
+                url: "https://sdk.twilio.com/js/voice/releases/2.7.3/twilio.min.js"
+            }, {
+                label: "cdn-fallback",
+                url: "https://media.twiliocdn.com/sdk/js/voice/releases/2.7.3/twilio.min.js"
+            }, {
+                label: "local",
+                url: "/vendor/twilio-voice-sdk-2.7.3.min.js",
+                local: true
+            }];
             const ready = () => (typeof Twilio !== "undefined" && Twilio.Device);
             if (ready()) return true;
 
@@ -131,7 +137,9 @@
                 log(`⬇️ loading SDK (${src.label}): ${src.url}`);
                 if (src.local) {
                     try {
-                        const res = await fetch(src.url, { method: "GET" });
+                        const res = await fetch(src.url, {
+                            method: "GET"
+                        });
                         log(`🔎 probe(local) ${src.url} => ${res.status} ${res.statusText}`);
                     } catch (e) {
                         log(`🔎 probe(local) ${src.url} => ERR: ${e.message}`);
@@ -140,7 +148,9 @@
                     await probeCdn(src.url);
                 }
 
-                const result = await loadScript(src.url, { crossOrigin: src.local ? false : "anonymous" });
+                const result = await loadScript(src.url, {
+                    crossOrigin: src.local ? false : "anonymous"
+                });
                 await new Promise((r) => setTimeout(r, 300));
 
                 if (ready()) {
@@ -198,21 +208,41 @@
             }
         }
 
-        document.getElementById("callBtn").onclick = () => {
-            if (!device) return log("⚠️ Device not ready yet!");
-            log("📞 Connecting to Dentist IVR...");
-            if (!device) return log("⚠️ Device not ready yet!");
-            connection = device.connect();
-            document.getElementById("callBtn").disabled = true;
-            document.getElementById("hangupBtn").disabled = false;
+        // Simple DTMF keypad UI
+        const keypad = document.createElement("div");
+        keypad.style.marginTop = "10px";
+        keypad.style.display = "grid";
+        keypad.style.gridTemplateColumns = "repeat(3, 60px)";
+        keypad.style.gap = "8px";
+        const keys = ["1","2","3","4","5","6","7","8","9","*","0","#"];
+        keys.forEach(k => {
+            const b = document.createElement("button");
+            b.textContent = k;
+            b.onclick = () => {
+                if (!call) return log("⚠️ No active call to send DTMF.");
+                try { call.sendDigits(k); log(`📟 DTMF sent: ${k}`); } catch (e) { log(`❌ DTMF error: ${e.message}`); }
+            };
+            keypad.appendChild(b);
+        });
+        document.body.insertBefore(keypad, document.getElementById("log"));
 
-            connection.on("accept", () => log("✅ Call connected — speak freely."));
-            connection.on("error", (err) => log("❌ Call error: " + err.message));
-            connection.on("disconnect", () => log("📴 Call ended."));
+        document.getElementById("callBtn").onclick = async () => {
+            try {
+                if (!device) return log("⚠️ Device not ready yet!");
+                log("📞 Connecting to Dentist IVR...");
+                call = await device.connect();
+                document.getElementById("callBtn").disabled = true;
+                document.getElementById("hangupBtn").disabled = false;
+                call.on("accept", () => log("✅ Call connected — speak freely."));
+                call.on("error", (err) => log("❌ Call error: " + err.message));
+                call.on("disconnect", () => log("📴 Call ended."));
+            } catch (e) {
+                log("❌ Connect error: " + e.message);
+            }
         };
 
         document.getElementById("hangupBtn").onclick = () => {
-            if (connection) connection.disconnect();
+            if (call) call.disconnect();
             log("🛑 Hangup requested by user.");
             document.getElementById("hangupBtn").disabled = true;
             document.getElementById("callBtn").disabled = false;

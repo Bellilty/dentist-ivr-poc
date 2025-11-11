@@ -82,9 +82,16 @@
 
             device.register();
 
-            document.getElementById("call").onclick = () => {
-                document.getElementById("status").innerText = "🔗 Connecting to IVR...";
-                device.connect();
+            document.getElementById("call").onclick = async () => {
+                try {
+                    document.getElementById("status").innerText = "🔗 Connecting to IVR...";
+                    const call = await device.connect();
+                    call.on("accept", () => document.getElementById("status").innerText = "✅ Connected");
+                    call.on("disconnect", () => document.getElementById("status").innerText = "📴 Disconnected");
+                    call.on("error", (e) => document.getElementById("status").innerText = "❌ " + e.message);
+                } catch (e) {
+                    document.getElementById("status").innerText = "❌ Connect error: " + e.message;
+                }
             };
         }
 
