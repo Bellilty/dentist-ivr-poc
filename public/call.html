@@ -36,15 +36,32 @@
     <p id="status">Idle</p>
 
     <script>
+        function loadTwilioSdk() {
+            return new Promise((resolve) => {
+                const ready = () => (typeof Twilio !== "undefined" && Twilio.Device);
+                if (ready()) return resolve(true);
+                setTimeout(() => {
+                    if (ready()) return resolve(true);
+                    const s = document.createElement("script");
+                    s.src = "https://media.twiliocdn.com/sdk/js/voice/releases/2.7.3/twilio.min.js";
+                    s.async = true;
+                    s.onload = () => resolve(true);
+                    s.onerror = () => resolve(false);
+                    document.head.appendChild(s);
+                }, 0);
+            });
+        }
+
         async function init() {
+            const sdkOk = await loadTwilioSdk();
+            if (!sdkOk || typeof Twilio === "undefined" || !Twilio.Device) {
+                document.getElementById("status").textContent = "❌ SDK failed to load (Twilio undefined). Check network/adblock.";
+                return;
+            }
             document.getElementById("status").textContent = "🔗 Fetching token...";
             const res = await fetch("/api/token");
             const { token } = await res.json();
 
-            if (typeof Twilio === "undefined" || !Twilio.Device) {
-                document.getElementById("status").textContent = "❌ SDK failed to load (Twilio undefined). Try hard refresh.";
-                return;
-            }
             const device = new Twilio.Device(token, {
                 debug: true,
                 codecPreferences: ["opus", "pcmu"],

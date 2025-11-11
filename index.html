@@ -19,12 +19,29 @@
             return data.token;
         }
 
+        function loadTwilioSdk() {
+            return new Promise((resolve) => {
+                const ready = () => (typeof Twilio !== "undefined" && Twilio.Device);
+                if (ready()) return resolve(true);
+                setTimeout(() => {
+                    if (ready()) return resolve(true);
+                    const s = document.createElement("script");
+                    s.src = "https://media.twiliocdn.com/sdk/js/voice/releases/2.7.3/twilio.min.js";
+                    s.async = true;
+                    s.onload = () => resolve(true);
+                    s.onerror = () => resolve(false);
+                    document.head.appendChild(s);
+                }, 0);
+            });
+        }
+
         async function initTwilio() {
-            const token = await getToken();
-            if (typeof Twilio === "undefined" || !Twilio.Device) {
-                document.getElementById("status").innerText = "❌ SDK failed to load (Twilio undefined). Try hard refresh.";
+            const sdkOk = await loadTwilioSdk();
+            if (!sdkOk || typeof Twilio === "undefined" || !Twilio.Device) {
+                document.getElementById("status").innerText = "❌ SDK failed to load (Twilio undefined). Check network/adblock.";
                 return;
             }
+            const token = await getToken();
             const device = new Twilio.Device(token, { debug: true });
 
             device.on("registered", () => {

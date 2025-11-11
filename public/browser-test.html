@@ -53,18 +53,36 @@
 
         let device, connection;
 
+        function loadTwilioSdk() {
+            return new Promise((resolve) => {
+                const ready = () => (typeof Twilio !== "undefined" && Twilio.Device);
+                if (ready()) return resolve(true);
+                // Try fallback CDN if primary not loaded after a tick
+                setTimeout(() => {
+                    if (ready()) return resolve(true);
+                    const s = document.createElement("script");
+                    s.src = "https://media.twiliocdn.com/sdk/js/voice/releases/2.7.3/twilio.min.js";
+                    s.async = true;
+                    s.onload = () => resolve(true);
+                    s.onerror = () => resolve(false);
+                    document.head.appendChild(s);
+                }, 0);
+            });
+        }
+
         async function initTwilio() {
             try {
+                const sdkOk = await loadTwilioSdk();
+                if (!sdkOk || typeof Twilio === "undefined" || !Twilio.Device) {
+                    log("❌ SDK failed to load from both CDNs. Check network/adblock.");
+                    return;
+                }
                 log("🔗 Fetching Twilio access token...");
                 const res = await fetch("/api/token");
                 const { token } = await res.json();
                 if (!token) throw new Error("No token returned from /api/token");
 
                 log("✅ Token received. Initializing Twilio Device v2...");
-                if (typeof Twilio === "undefined" || !Twilio.Device) {
-                    log("❌ SDK failed to load: Twilio is not defined. Hard refresh the page.");
-                    return;
-                }
                 device = new Twilio.Device(token, {
                     codecPreferences: ["opus", "pcmu"],
                     fakeLocalDTMF: true,
