@@ -63,16 +63,13 @@ async function transcribeAudioFromTwilio(recordingUrl) {
     try {
         console.log("🎧 Downloading Twilio recording base URL:", recordingUrl);
 
-        // Petite marge pour s'assurer que Twilio a finalisé le fichier
-        await sleep(2000);
-
         const auth = Buffer.from(
             `${process.env.TWILIO_ACCOUNT_SID}:${process.env.TWILIO_AUTH_TOKEN}`
         ).toString("base64");
 
-        // Hotfix: télécharger en WAV (format natif) + backoff exponentiel
+        // Optimisé: télécharger en WAV avec retry rapide (délais réduits)
         const url = `${recordingUrl}.wav`;
-        const delays = [1000, 2000, 4000, 8000, 16000]; // 1s → 16s
+        const delays = [300, 500, 1000, 2000]; // 300ms → 2s max (au lieu de 1s → 16s)
         let resp;
         for (let attempt = 0; attempt < delays.length; attempt++) {
             resp = await fetch(url, { headers: { Authorization: `Basic ${auth}` } });
@@ -80,7 +77,9 @@ async function transcribeAudioFromTwilio(recordingUrl) {
             console.warn(
                 `⏳ Recording not ready (status ${resp.status}), retry ${attempt + 1}/${delays.length}`
             );
-            await sleep(delays[attempt]);
+            if (attempt < delays.length - 1) {
+                await sleep(delays[attempt]);
+            }
         }
 
         if (!resp || !resp.ok) {
