@@ -58,21 +58,25 @@ Les URLs dans `voice_v2.js` pointent vers `/api/voice_v2` au lieu de `/api/voice
 ### Variables d'environnement nécessaires
 
 **Optionnel - Hugging Face (recommandé pour commencer) :**
+
 ```bash
 HUGGINGFACE_API_KEY=votre_clé_huggingface  # Optionnel, gratuit sans clé
 ```
 
 Pour obtenir une clé Hugging Face (optionnel) :
+
 1. Aller sur [Hugging Face](https://huggingface.co/settings/tokens)
 2. Créer un token d'accès
 3. Ajouter dans les variables d'environnement Vercel
 
 **Optionnel - Gladia (alternative) :**
+
 ```bash
 GLADIA_API_KEY=votre_clé_gladia
 ```
 
 Pour obtenir une clé Gladia :
+
 1. Aller sur [Gladia.io](https://www.gladia.io)
 2. Créer un compte gratuit
 3. Obtenir votre clé API
@@ -92,12 +96,12 @@ Pour obtenir une clé Gladia :
 
 ## 📊 Comparaison des performances
 
-| Méthode                  | Latence estimée | Précision  | Coût        | Type        |
-| ------------------------ | --------------- | ---------- | ----------- | ----------- |
-| **Hugging Face Whisper** | ~2-4s           | ⭐⭐⭐⭐   | Gratuit     | Open Source |
-| **Gladia**                | ~2-3s           | ⭐⭐⭐⭐   | Gratuit     | Open Source |
-| **OpenAI Whisper**        | ~3-4s           | ⭐⭐⭐⭐⭐ | ~$0.006/min | Propriétaire |
-| **Fallback automatique**  | ~3-4s           | ⭐⭐⭐⭐⭐ | Variable    | Mixte       |
+| Méthode                  | Latence estimée | Précision  | Coût        | Type         |
+| ------------------------ | --------------- | ---------- | ----------- | ------------ |
+| **Hugging Face Whisper** | ~2-4s           | ⭐⭐⭐⭐   | Gratuit     | Open Source  |
+| **Gladia**               | ~2-3s           | ⭐⭐⭐⭐   | Gratuit     | Open Source  |
+| **OpenAI Whisper**       | ~3-4s           | ⭐⭐⭐⭐⭐ | ~$0.006/min | Propriétaire |
+| **Fallback automatique** | ~3-4s           | ⭐⭐⭐⭐⭐ | Variable    | Mixte        |
 
 ## 🔍 Logs
 
