@@ -13,6 +13,49 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 /* ---------- Utils ---------- */
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+const HEBREW_TO_LATIN = {
+    א: "a",
+    ב: "b",
+    ג: "g",
+    ד: "d",
+    ה: "h",
+    ו: "v",
+    ז: "z",
+    ח: "kh",
+    ט: "t",
+    י: "y",
+    כ: "k",
+    ך: "k",
+    ל: "l",
+    מ: "m",
+    ם: "m",
+    נ: "n",
+    ן: "n",
+    ס: "s",
+    ע: "a",
+    פ: "p",
+    ף: "p",
+    צ: "ts",
+    ץ: "ts",
+    ק: "k",
+    ר: "r",
+    ש: "sh",
+    ת: "t",
+};
+
+function transliterateHebrew(text) {
+    if (!text) return text;
+    return [...text]
+        .map((ch) => {
+            if (HEBREW_TO_LATIN[ch]) return HEBREW_TO_LATIN[ch];
+            if (/\s/.test(ch)) return ch;
+            return ch;
+        })
+        .join("")
+        .replace(/\s+/g, " ")
+        .trim();
+}
+
 /* ---------- Google Calendar Auth ---------- */
 function getOAuthClient() {
     const credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS_JSON);
@@ -271,11 +314,14 @@ Return strict JSON only:
                     const localized = new Date(whenISO).toLocaleString("en-US", {
                         timeZone: process.env.CLINIC_TIMEZONE,
                     });
+                    const summaryName = /[\u0590-\u05FF]/.test(name)
+                        ? transliterateHebrew(name)
+                        : name;
                     vr.say({
                             language: "en-US",
                             voice: "Polly.Joanna",
                         },
-                        `Appointment confirmed for ${name}. Date and time ${localized}.`
+                        `Appointment confirmed for ${summaryName}. Date and time ${localized}.`
                     );
                 } else {
                     const msgs = {
