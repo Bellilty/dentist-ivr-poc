@@ -14,6 +14,28 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 /* ---------- Utils ---------- */
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// Helper pour logs avec timestamp
+const logWithTime = (message, data = null) => {
+    const timestamp = new Date().toISOString();
+    const time = new Date().toLocaleTimeString('fr-FR', { hour12: false, fractionalSecondDigits: 3 });
+    if (data !== null) {
+        console.log(`[${time}] [V2] ${message}`, data);
+    } else {
+        console.log(`[${time}] [V2] ${message}`);
+    }
+};
+
+// Helper pour mesurer le temps
+const timeStart = (label) => {
+    const start = Date.now();
+    logWithTime(`⏱️ START: ${label}`);
+    return () => {
+        const duration = Date.now() - start;
+        logWithTime(`⏱️ END: ${label} - Duration: ${duration}ms (${(duration/1000).toFixed(2)}s)`);
+        return duration;
+    };
+};
+
 /* ---------- Google Calendar Auth ---------- */
 function getOAuthClient() {
     const credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS_JSON);
@@ -65,15 +87,25 @@ async function createCalendarEvent({ summary, startISO, minutes, phone }) {
  * Modèles disponibles: openai/whisper-base, openai/whisper-small, openai/whisper-medium
  */
 async function transcribeWithHuggingFace(audioFile, language = "he") {
+    const endTimer = timeStart("Hugging Face Whisper Transcription");
     try {
-        console.log("🤗 Trying Hugging Face Whisper (open source)...");
+        logWithTime("🤗 METHOD: Hugging Face Whisper (open source)");
+        logWithTime(`📋 Language: ${language === "he" ? "Hebrew" : "English"}`);
         
         // Hugging Face API key optionnelle (gratuit sans clé mais avec rate limit)
         const hfToken = process.env.HUGGINGFACE_API_KEY || "";
+        const hasToken = !!hfToken;
+        logWithTime(`🔑 API Key: ${hasToken ? "✅ Present" : "⚠️ Not set (using free tier with rate limit)"}`);
+        
         const model = language === "he" ? "openai/whisper-small" : "openai/whisper-base";
+        logWithTime(`🤖 Model: ${model}`);
         
         // Lire le fichier audio
+        const readTimer = timeStart("Reading audio file");
         const audioBytes = fs.readFileSync(audioFile);
+        const fileSize = (audioBytes.length / 1024).toFixed(2);
+        readTimer();
+        logWithTime(`📁 Audio file size: ${fileSize} KB`);
         
         const headers = {};
         if (hfToken) {
@@ -81,6 +113,9 @@ async function transcribeWithHuggingFace(audioFile, language = "he") {
         }
 
         // Hugging Face Inference API accepte directement les bytes audio
+        const apiTimer = timeStart("Hugging Face API call");
+        logWithTime(`🌐 API URL: https://api-inference.huggingface.co/models/${model}`);
+        
         const response = await fetch(
             `https://api-inference.huggingface.co/models/${model}`,
             {
@@ -89,31 +124,49 @@ async function transcribeWithHuggingFace(audioFile, language = "he") {
                 body: audioBytes,
             }
         );
+        
+        const apiDuration = apiTimer();
+        logWithTime(`📡 API Response status: ${response.status} ${response.statusText}`);
 
         if (!response.ok) {
             // Si le modèle est en train de charger, attendre un peu
             if (response.status === 503) {
                 const errorData = await response.json().catch(() => ({}));
                 const estimatedTime = errorData.estimated_time || 10;
-                console.log(`⏳ Model loading, waiting ${estimatedTime}s...`);
+                logWithTime(`⏳ Model is loading, estimated wait time: ${estimatedTime}s`);
                 await sleep(estimatedTime * 1000);
+                endTimer();
                 return await transcribeWithHuggingFace(audioFile, language);
             }
             const errorText = await response.text();
+            logWithTime(`❌ API Error: ${response.status} - ${errorText}`);
+            endTimer();
             throw new Error(`Hugging Face STT error: ${response.status} - ${errorText}`);
         }
 
+        const parseTimer = timeStart("Parsing API response");
         const data = await response.json();
+        parseTimer();
+        
         // Le format de réponse peut varier selon le modèle
         const transcription = data.text || data[0]?.text || (Array.isArray(data) && data[0]?.transcription);
         
         if (transcription) {
-            console.log("✅ Hugging Face Whisper result:", transcription);
+            const totalDuration = endTimer();
+            logWithTime("✅ SUCCESS: Hugging Face Whisper transcription completed");
+            logWithTime(`📝 TRANSCRIPTION TEXT: "${transcription}"`);
+            logWithTime(`📊 Total transcription time: ${totalDuration}ms (${(totalDuration/1000).toFixed(2)}s)`);
             return transcription;
         }
+        
+        endTimer();
+        logWithTime("⚠️ No transcription found in response");
+        logWithTime("📦 Full API response:", data);
         return null;
     } catch (err) {
-        console.error("🚨 Hugging Face STT error:", err.message);
+        endTimer();
+        logWithTime(`🚨 ERROR: Hugging Face STT failed - ${err.message}`);
+        logWithTime("📚 Error stack:", err.stack);
         return null;
     }
 }
@@ -123,20 +176,36 @@ async function transcribeWithHuggingFace(audioFile, language = "he") {
  * Supporte hébreu et anglais
  */
 async function transcribeWithGladia(audioFile, language = "he") {
+    const endTimer = timeStart("Gladia API Transcription");
     try {
-        console.log("🎯 Trying Gladia API (open source)...");
+        logWithTime("🎯 METHOD: Gladia API (open source)");
+        logWithTime(`📋 Language: ${language === "he" ? "Hebrew" : "English"}`);
         
         const gladiaKey = process.env.GLADIA_API_KEY || "";
         if (!gladiaKey) {
-            console.log("⚠️ GLADIA_API_KEY not set, skipping Gladia");
+            logWithTime("⚠️ GLADIA_API_KEY not set, skipping Gladia");
+            endTimer();
             return null;
         }
+        logWithTime("🔑 API Key: ✅ Present");
 
         // Lire le fichier audio
+        const readTimer = timeStart("Reading audio file for Gladia");
         const audioBytes = fs.readFileSync(audioFile);
+        const fileSize = (audioBytes.length / 1024).toFixed(2);
+        readTimer();
+        logWithTime(`📁 Audio file size: ${fileSize} KB`);
+        
+        const encodeTimer = timeStart("Encoding audio to base64");
         const base64Audio = audioBytes.toString('base64');
+        const base64Size = (base64Audio.length / 1024).toFixed(2);
+        encodeTimer();
+        logWithTime(`📦 Base64 size: ${base64Size} KB`);
 
         // Upload audio
+        const uploadTimer = timeStart("Gladia audio upload");
+        logWithTime("🌐 Uploading to: https://api.gladia.io/v2/upload");
+        
         const uploadResponse = await fetch('https://api.gladia.io/v2/upload', {
             method: 'POST',
             headers: {
@@ -147,15 +216,27 @@ async function transcribeWithGladia(audioFile, language = "he") {
                 audio: base64Audio,
             }),
         });
+        
+        const uploadDuration = uploadTimer();
+        logWithTime(`📡 Upload response: ${uploadResponse.status} ${uploadResponse.statusText}`);
 
         if (!uploadResponse.ok) {
+            const errorText = await uploadResponse.text();
+            logWithTime(`❌ Upload error: ${uploadResponse.status} - ${errorText}`);
+            endTimer();
             throw new Error(`Gladia upload error: ${uploadResponse.status}`);
         }
 
         const uploadData = await uploadResponse.json();
         const audioUrl = uploadData.audio_url;
+        logWithTime(`✅ Audio uploaded successfully`);
+        logWithTime(`🔗 Audio URL: ${audioUrl}`);
 
         // Transcribe
+        const transcribeTimer = timeStart("Gladia transcription request");
+        logWithTime("🌐 Requesting transcription: https://api.gladia.io/v2/transcription");
+        logWithTime(`🌍 Language setting: ${language === "he" ? "hebrew" : "english"}`);
+        
         const transcribeResponse = await fetch('https://api.gladia.io/v2/transcription', {
             method: 'POST',
             headers: {
@@ -168,44 +249,78 @@ async function transcribeWithGladia(audioFile, language = "he") {
                 toggle_diarization: false,
             }),
         });
+        
+        transcribeTimer();
+        logWithTime(`📡 Transcription request response: ${transcribeResponse.status} ${transcribeResponse.statusText}`);
 
         if (!transcribeResponse.ok) {
+            const errorText = await transcribeResponse.text();
+            logWithTime(`❌ Transcription request error: ${transcribeResponse.status} - ${errorText}`);
+            endTimer();
             throw new Error(`Gladia transcription error: ${transcribeResponse.status}`);
         }
 
         const transcribeData = await transcribeResponse.json();
+        const transcriptionId = transcribeData.id;
+        logWithTime(`✅ Transcription job created`);
+        logWithTime(`🆔 Transcription ID: ${transcriptionId}`);
         
         // Polling pour obtenir le résultat
+        const pollingTimer = timeStart("Gladia polling for results");
         let result = null;
         let attempts = 0;
+        logWithTime("🔄 Starting polling for transcription results...");
+        
         while (attempts < 30) {
+            const statusTimer = timeStart(`Poll attempt ${attempts + 1}`);
             const statusResponse = await fetch(
-                `https://api.gladia.io/v2/transcription/${transcribeData.id}`,
+                `https://api.gladia.io/v2/transcription/${transcriptionId}`,
                 {
                     headers: { 'x-gladia-key': gladiaKey },
                 }
             );
+            statusTimer();
+            
             const statusData = await statusResponse.json();
+            logWithTime(`📊 Poll ${attempts + 1}/30 - Status: ${statusData.status}`);
             
             if (statusData.status === 'done') {
                 result = statusData.result?.transcription_full?.text || 
                          statusData.result?.transcription?.map(t => t.text).join(' ') || '';
+                logWithTime("✅ Transcription completed!");
                 break;
             }
             if (statusData.status === 'error') {
+                logWithTime(`❌ Transcription failed: ${statusData.error || 'Unknown error'}`);
+                endTimer();
                 throw new Error('Gladia transcription failed');
             }
+            if (statusData.status === 'processing') {
+                logWithTime("⏳ Still processing...");
+            }
+            
             await sleep(1000);
             attempts++;
         }
+        
+        const pollingDuration = pollingTimer();
+        logWithTime(`🔄 Polling completed after ${attempts} attempts (${pollingDuration}ms)`);
 
         if (result) {
-            console.log("✅ Gladia result:", result);
+            const totalDuration = endTimer();
+            logWithTime("✅ SUCCESS: Gladia transcription completed");
+            logWithTime(`📝 TRANSCRIPTION TEXT: "${result}"`);
+            logWithTime(`📊 Total transcription time: ${totalDuration}ms (${(totalDuration/1000).toFixed(2)}s)`);
             return result;
         }
+        
+        endTimer();
+        logWithTime("⚠️ No transcription result after polling");
         return null;
     } catch (err) {
-        console.error("🚨 Gladia error:", err.message);
+        endTimer();
+        logWithTime(`🚨 ERROR: Gladia transcription failed - ${err.message}`);
+        logWithTime("📚 Error stack:", err.stack);
         return null;
     }
 }
@@ -214,8 +329,19 @@ async function transcribeWithGladia(audioFile, language = "he") {
  * Méthode 3: OpenAI Whisper (fallback si open source échoue)
  */
 async function transcribeWithOpenAIWhisper(audioFile, language = "he") {
+    const endTimer = timeStart("OpenAI Whisper Transcription");
     try {
-        console.log("📤 Falling back to OpenAI Whisper...");
+        logWithTime("📤 METHOD: OpenAI Whisper (fallback)");
+        logWithTime(`📋 Language: ${language === "he" ? "Hebrew" : "English"}`);
+        logWithTime(`🤖 Model: gpt-4o-mini-transcribe`);
+        
+        const fileStats = fs.statSync(audioFile);
+        const fileSize = (fileStats.size / 1024).toFixed(2);
+        logWithTime(`📁 Audio file size: ${fileSize} KB`);
+        
+        const apiTimer = timeStart("OpenAI API call");
+        logWithTime("🌐 Calling OpenAI Whisper API...");
+        
         const transcription = await openai.audio.transcriptions.create({
             file: fs.createReadStream(audioFile),
             model: "gpt-4o-mini-transcribe",
@@ -225,10 +351,20 @@ async function transcribeWithOpenAIWhisper(audioFile, language = "he") {
                 ? "שיחה לקביעת תור אצל רופא שיניים. שמות פרטיים ומשפחה בעברית, תאריכים ושעות בדיוק."
                 : "Medical appointment booking conversation. Patient names, dates and times.",
         });
-        console.log("✅ OpenAI Whisper result:", transcription.text);
+        
+        const apiDuration = apiTimer();
+        logWithTime(`📡 API call completed in ${apiDuration}ms`);
+        
+        const totalDuration = endTimer();
+        logWithTime("✅ SUCCESS: OpenAI Whisper transcription completed");
+        logWithTime(`📝 TRANSCRIPTION TEXT: "${transcription.text}"`);
+        logWithTime(`📊 Total transcription time: ${totalDuration}ms (${(totalDuration/1000).toFixed(2)}s)`);
+        
         return transcription.text || "";
     } catch (err) {
-        console.error("🚨 OpenAI Whisper error:", err.message);
+        endTimer();
+        logWithTime(`🚨 ERROR: OpenAI Whisper failed - ${err.message}`);
+        logWithTime("📚 Error stack:", err.stack);
         return "";
     }
 }
@@ -237,8 +373,12 @@ async function transcribeWithOpenAIWhisper(audioFile, language = "he") {
  * Transcription optimisée avec fallback automatique
  */
 async function transcribeAudioFromTwilio(recordingUrl) {
+    const totalTimer = timeStart("Complete Transcription Process");
     try {
-        console.log("🎧 Downloading Twilio recording base URL:", recordingUrl);
+        logWithTime("═══════════════════════════════════════════════════════");
+        logWithTime("🎙️ STARTING TRANSCRIPTION PROCESS");
+        logWithTime("═══════════════════════════════════════════════════════");
+        logWithTime(`🔗 Recording URL: ${recordingUrl}`);
 
         const auth = Buffer.from(
             `${process.env.TWILIO_ACCOUNT_SID}:${process.env.TWILIO_AUTH_TOKEN}`
@@ -246,56 +386,116 @@ async function transcribeAudioFromTwilio(recordingUrl) {
 
         // Optimisé: télécharger en WAV avec retry rapide
         const url = `${recordingUrl}.wav`;
+        logWithTime(`📥 Download URL: ${url}`);
+        
+        const downloadTimer = timeStart("Downloading recording from Twilio");
         const delays = [300, 500, 1000, 2000];
         let resp;
+        let downloadAttempts = 0;
+        
         for (let attempt = 0; attempt < delays.length; attempt++) {
+            downloadAttempts++;
+            const attemptTimer = timeStart(`Download attempt ${downloadAttempts}`);
             resp = await fetch(url, { headers: { Authorization: `Basic ${auth}` } });
-            if (resp.ok) break;
-            console.warn(
-                `⏳ Recording not ready (status ${resp.status}), retry ${attempt + 1}/${delays.length}`
-            );
+            attemptTimer();
+            
+            logWithTime(`📡 Download attempt ${downloadAttempts}/${delays.length} - Status: ${resp.status}`);
+            
+            if (resp.ok) {
+                logWithTime("✅ Recording downloaded successfully");
+                break;
+            }
+            
+            logWithTime(`⏳ Recording not ready (status ${resp.status}), waiting ${delays[attempt]}ms before retry`);
             if (attempt < delays.length - 1) {
                 await sleep(delays[attempt]);
             }
         }
+        
+        const downloadDuration = downloadTimer();
+        logWithTime(`📊 Download completed in ${downloadDuration}ms (${(downloadDuration/1000).toFixed(2)}s)`);
 
         if (!resp || !resp.ok) {
+            logWithTime(`❌ Failed to download recording after ${downloadAttempts} attempts`);
+            totalTimer();
             throw new Error(`❌ Failed to download: ${resp?.status}`);
         }
 
+        const saveTimer = timeStart("Saving recording to disk");
         const tempFile = path.join("/tmp", `recording-v2-${Date.now()}.wav`);
         const buffer = await resp.arrayBuffer();
         fs.writeFileSync(tempFile, Buffer.from(buffer));
-        console.log("📥 Recording saved locally:", tempFile);
+        const fileSize = (buffer.byteLength / 1024).toFixed(2);
+        saveTimer();
+        logWithTime(`💾 Recording saved: ${tempFile}`);
+        logWithTime(`📁 File size: ${fileSize} KB`);
 
         // Essayer les solutions open source d'abord, puis fallback vers OpenAI
+        logWithTime("═══════════════════════════════════════════════════════");
+        logWithTime("🔄 STARTING TRANSCRIPTION ATTEMPTS");
+        logWithTime("═══════════════════════════════════════════════════════");
+        
         // 1. Hugging Face Whisper (gratuit, open source)
+        logWithTime("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+        logWithTime("📍 ATTEMPT 1/3: Hugging Face Whisper");
+        logWithTime("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
         let transcription = await transcribeWithHuggingFace(tempFile, "he");
         
         // 2. Gladia (si Hugging Face échoue)
         if (!transcription) {
-            console.log("🔄 Trying Gladia API...");
+            logWithTime("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+            logWithTime("📍 ATTEMPT 2/3: Gladia API");
+            logWithTime("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
             transcription = await transcribeWithGladia(tempFile, "he");
         }
         
         // 3. OpenAI Whisper (fallback final)
         if (!transcription) {
-            console.log("🔄 Falling back to OpenAI Whisper...");
+            logWithTime("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+            logWithTime("📍 ATTEMPT 3/3: OpenAI Whisper (fallback)");
+            logWithTime("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
             transcription = await transcribeWithOpenAIWhisper(tempFile, "he");
         }
 
+        const cleanupTimer = timeStart("Cleaning up temp file");
         fs.unlinkSync(tempFile);
+        cleanupTimer();
+        logWithTime("🗑️ Temp file deleted");
+
+        const totalDuration = totalTimer();
+        logWithTime("═══════════════════════════════════════════════════════");
+        if (transcription) {
+            logWithTime("✅ TRANSCRIPTION PROCESS COMPLETED SUCCESSFULLY");
+            logWithTime(`📝 FINAL TRANSCRIPTION: "${transcription}"`);
+        } else {
+            logWithTime("❌ TRANSCRIPTION PROCESS FAILED - No result");
+        }
+        logWithTime(`⏱️ TOTAL PROCESS TIME: ${totalDuration}ms (${(totalDuration/1000).toFixed(2)}s)`);
+        logWithTime("═══════════════════════════════════════════════════════");
+        
         return transcription || "";
     } catch (err) {
-        console.error("🚨 Transcription error:", err.message);
+        totalTimer();
+        logWithTime("═══════════════════════════════════════════════════════");
+        logWithTime("🚨 TRANSCRIPTION PROCESS ERROR");
+        logWithTime(`❌ Error: ${err.message}`);
+        logWithTime("📚 Error stack:", err.stack);
+        logWithTime("═══════════════════════════════════════════════════════");
         return "";
     }
 }
 
 /* ---------- Main Twilio Webhook ---------- */
 export default async function handler(req, res) {
-    console.log("🟢 [V2] STEP:", req.query.step || "start");
-    console.log("🟡 [V2] BODY keys:", Object.keys(req.body || {}));
+    const requestTimer = timeStart("Request Processing");
+    logWithTime("═══════════════════════════════════════════════════════");
+    logWithTime("🟢 NEW REQUEST RECEIVED");
+    logWithTime("═══════════════════════════════════════════════════════");
+    logWithTime(`📋 STEP: ${req.query.step || "start"}`);
+    logWithTime(`📦 BODY keys: ${Object.keys(req.body || {}).join(", ")}`);
+    logWithTime(`📞 From: ${req.body.From || "N/A"}`);
+    logWithTime(`🔗 Recording URL: ${req.body.RecordingUrl || "N/A"}`);
+    logWithTime(`💬 Speech Result: ${req.body.SpeechResult || "N/A"}`);
 
     if (req.method !== "POST") return res.status(405).send("Method Not Allowed");
 
@@ -384,15 +584,28 @@ export default async function handler(req, res) {
 
             // Pour hébreu: utiliser transcription open source
             if (lang === "3" && recordingUrl) {
-                console.log("🎙️ [V2] Hebrew mode — fetching & transcribing with open source STT…");
+                logWithTime("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+                logWithTime("🇮🇱 HEBREW MODE DETECTED");
+                logWithTime("🎙️ Starting transcription with open source STT…");
+                logWithTime("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
                 utterance = await transcribeAudioFromTwilio(recordingUrl);
+                
+                if (utterance) {
+                    logWithTime("✅ Transcription successful for Hebrew");
+                } else {
+                    logWithTime("❌ Transcription failed for Hebrew");
+                }
+            } else if (lang !== "3") {
+                logWithTime(`🌍 Language: ${lang === "1" ? "English" : "French"}`);
+                logWithTime("💬 Using Twilio STT (built-in)");
+                logWithTime(`📝 Twilio Speech Result: "${utterance}"`);
             }
             
             // Pour EN/FR: on garde STT Twilio (déjà rapide et gratuit)
             // Mais on pourrait aussi utiliser l'enregistrement + transcription open source si besoin
 
             if (!utterance) {
-                console.warn("⚠️ No speech detected / transcription failed");
+                logWithTime("⚠️ WARNING: No speech detected / transcription failed");
                 vr.say({ language: "en-US" },
                     "Sorry, I could not understand your message. Please try again later."
                 );
@@ -401,12 +614,18 @@ export default async function handler(req, res) {
                 return;
             }
 
-            console.log("🧠 [V2] Extracted speech:", utterance);
+            logWithTime("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+            logWithTime("🧠 EXTRACTED SPEECH/TRANSCRIPTION");
+            logWithTime(`📝 Text: "${utterance}"`);
+            logWithTime("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
 
             let whenISO, name;
             const currentYear = new Date().getFullYear();
 
             try {
+                const parseTimer = timeStart("Parsing with GPT-4o-mini");
+                logWithTime("🤖 Starting GPT-4o-mini extraction...");
+                
                 const sysPrompt =
                     lang === "3" ?
                     `אתה עוזר קביעת תורים רפואיים. מתוך המשפט של המטופל, הפק *שם מלא* ו-*תאריך מדויק* (כולל שעה אם קיימת).
@@ -418,6 +637,9 @@ If no year is provided, assume it is ${currentYear}.
 Return strict JSON only:
 {"date_iso":"YYYY-MM-DDTHH:mm:ssZ","name":"Patient name"}.`;
 
+                logWithTime(`📋 System prompt length: ${sysPrompt.length} chars`);
+                logWithTime(`📝 User content length: ${utterance.length} chars`);
+
                 const completion = await openai.chat.completions.create({
                     model: "gpt-4o-mini",
                     messages: [
@@ -426,10 +648,17 @@ Return strict JSON only:
                     ],
                     temperature: 0.1,
                 });
+                
+                const parseDuration = parseTimer();
+                logWithTime(`✅ GPT extraction completed in ${parseDuration}ms`);
+                logWithTime(`📦 GPT Response: ${completion.choices[0].message.content}`);
 
                 const data = JSON.parse(completion.choices[0].message.content.trim());
                 whenISO = data.date_iso;
                 name = data.name || "Patient";
+                
+                logWithTime(`📅 Extracted date: ${whenISO}`);
+                logWithTime(`👤 Extracted name: ${name}`);
 
                 // Sécurité : remet l'année courante si le modèle renvoie une année passée
                 const d = new Date(whenISO);
@@ -438,7 +667,8 @@ Return strict JSON only:
                     whenISO = d.toISOString();
                 }
             } catch (e) {
-                console.error("⚠️ OpenAI parsing error:", e.message);
+                logWithTime(`⚠️ ERROR: OpenAI parsing failed - ${e.message}`);
+                logWithTime("📚 Error stack:", e.stack);
                 // Fallback: chrono pour EN/FR ; sinon valeur par défaut (J+1)
                 const parsed =
                     lang === "1" || lang === "2" ?
@@ -452,12 +682,22 @@ Return strict JSON only:
             }
 
             try {
+                const calendarTimer = timeStart("Creating calendar event");
+                logWithTime("📅 Creating calendar event...");
+                logWithTime(`📋 Summary: ${process.env.CLINIC_NAME} – RDV ${name}`);
+                logWithTime(`📅 Start: ${whenISO}`);
+                logWithTime(`⏱️ Duration: ${parseInt(process.env.DEFAULT_APPT_MINUTES || "30", 10)} minutes`);
+                logWithTime(`📞 Phone: ${from}`);
+                
                 await createCalendarEvent({
                     summary: `${process.env.CLINIC_NAME} – RDV ${name}`,
                     startISO: whenISO,
                     minutes: parseInt(process.env.DEFAULT_APPT_MINUTES || "30", 10),
                     phone: from,
                 });
+                
+                const calendarDuration = calendarTimer();
+                logWithTime(`✅ Calendar event created in ${calendarDuration}ms`);
 
                 if (lang === "3") {
                     // Confirmation audio pré-enregistrée en hébreu
@@ -483,18 +723,30 @@ Return strict JSON only:
                     vr.say({ language: { "1": "en-US", "2": "fr-FR" }[lang] }, msgs[lang]);
                 }
             } catch (err) {
-                console.error("❌ Calendar error:", err.message);
+                logWithTime(`❌ ERROR: Calendar creation failed - ${err.message}`);
+                logWithTime("📚 Error stack:", err.stack);
                 vr.say({ language: "en-US" },
                     "Sorry, there was an issue scheduling your appointment."
                 );
             }
 
+            const requestDuration = requestTimer();
+            logWithTime("═══════════════════════════════════════════════════════");
+            logWithTime("✅ REQUEST COMPLETED SUCCESSFULLY");
+            logWithTime(`⏱️ Total request time: ${requestDuration}ms (${(requestDuration/1000).toFixed(2)}s)`);
+            logWithTime("═══════════════════════════════════════════════════════");
+            
             res.setHeader("Content-Type", "text/xml");
             res.send(vr.toString());
             return;
         }
     } catch (err) {
-        console.error("🔥 [V2] FATAL ERROR:", err.message, err.stack);
+        requestTimer();
+        logWithTime("═══════════════════════════════════════════════════════");
+        logWithTime("🔥 FATAL ERROR");
+        logWithTime(`❌ Error: ${err.message}`);
+        logWithTime("📚 Error stack:", err.stack);
+        logWithTime("═══════════════════════════════════════════════════════");
         const fallback = new VoiceResponse();
         fallback.say({ language: "en-US" }, "Sorry, something went wrong on our end.");
         res.setHeader("Content-Type", "text/xml");
